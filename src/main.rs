@@ -35,7 +35,22 @@ use std::io::{self, Read, Stdout, Write};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(|s| s.as_str()) {
-        None => run_tui(),
+        None => {
+            // double-clicked from Finder (inside an .app bundle): no args,
+            // no TTY — TUI would fail with "Device not configured". Launch
+            // the panel with the default hotkey instead.
+            if std::env::current_exe()
+                .map(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
+                .unwrap_or(false)
+            {
+                match ralfred::gui::run(Some("ALT+CTRL+SPACE")) {
+                    Ok(()) => {}
+                    Err(e) => eprintln!("gui error: {e}"),
+                }
+            } else {
+                run_tui();
+            }
+        }
         Some("snippet") => cli_snippet(&args[1..]),
         Some("clipboard") => cli_clipboard(&args[1..]),
         Some("workflows") => cli_workflows(),
