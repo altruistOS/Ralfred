@@ -259,6 +259,10 @@ fn url_encode(s: &str) -> String {
 }
 
 pub fn exec_action(a: Action) -> std::io::Result<()> {
+    // harness/test guard: never touch the real clipboard, never launch apps
+    if std::env::var("RALFRED_NOACT").is_ok_and(|v| v == "1") {
+        return Ok(());
+    }
     match a {
         Action::Open(p) => {
             Command::new("open").arg(&p).status()?;

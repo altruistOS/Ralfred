@@ -3,6 +3,7 @@
 # Runs every CLI-visible feature against an isolated RALFRED_HOME so the
 # user's real Alfred/ralfred data is never touched. Exit 0 = ALL PASS.
 set -u
+export RALFRED_NOACT=1
 R="$(cd "$(dirname "$0")/.." && pwd)/target/release/ralfred"
 H="$(mktemp -d /tmp/ralfred_e2e.XXXXXX)"
 export H
@@ -56,7 +57,9 @@ chk "actions-dict" "alfred.action.text.openindictionary" "$($R actions)"
 chk "actions-quicklook" "alfred.action.quicklook" "$($R actions)"
 chk "actions-paste-plain" "alfred.action.text.pasteasplaintext" "$($R actions)"
 # --open anywhere in argv must still act (bug regression: --open only checked last arg)
-chk "open-flag-first" "dictionary lookup" "$($R --open 'dict ephemeral')"
+# NOTE: use calc (act = pbcopy) not dict — dict:// launches Dictionary.app and would
+# pop GUI windows during the suite (harness hygiene).
+chk "open-flag-first" "calculation" "$($R --open '2+2')"
 
 echo "== 2a2b. contacts (fixture backend) =="
 cat > "$H/contacts.json" <<JSON
