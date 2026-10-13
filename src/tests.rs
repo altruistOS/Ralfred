@@ -182,3 +182,34 @@ fn quicklook_url_and_toggle() {
     assert!(crate::quicklook::toggle("file:///tmp/b").is_none());
     std::env::remove_var("RALFRED_QL_NOEXEC");
 }
+
+#[test]
+fn icons_and_onepassword() {
+    // icons: icns discovery (dir bundle -> icns), rasterize + cache hit
+    let app = std::path::PathBuf::from("/System/Applications/Utilities/Terminal.app");
+    if app.exists() {
+        let ic = crate::icons::icns_for(&app);
+        assert!(ic.is_some());
+        let png = crate::icons::icon_png(&app);
+        assert!(png.is_some());
+        assert_eq!(png, crate::icons::icon_png(&app)); // cache: same path back
+        let h = png.unwrap();
+        let head = std::fs::read(&h).unwrap();
+        assert_eq!(&head[0..4], b"\x89PNG");
+    }
+    // non-existent path: no icns, None icon
+    assert!(crate::icons::icns_for(std::path::Path::new("/zz/nope")).is_none());
+    // onepassword: fixture items get fill actions; otherwise search scheme
+    let f = std::env::temp_dir().join("rf_op_test.json");
+    std::fs::write(&f, r#"[{"id":"G1","vault":"P","title":"GitHub","user":"u@x.y"},{"id":"A2","vault":"W","title":"AWS","user":"ops"}]"#).unwrap();
+    std::env::set_var("RALFRED_OP_JSON", &f);
+    let c = crate::onepassword::candidates("op github");
+    assert_eq!(c.len(), 1);
+    assert!(c[0].action.as_deref().unwrap().starts_with("onepassword:fill/P/G1"));
+    let s = crate::onepassword::candidates("op slack");
+    assert!(s[0].action.as_deref().unwrap().starts_with("onepassword:search:slack"));
+    assert!(crate::onepassword::candidates("ops github").is_empty());
+    assert!(crate::onepassword::candidates("op").len() == 1); // bare -> hint card
+    std::env::remove_var("RALFRED_OP_JSON");
+    std::fs::remove_file(&f).ok();
+}

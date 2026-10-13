@@ -55,6 +55,7 @@ fn main() {
         Some("hotkey") => cli_hotkey(&args[1..]),
         Some("actions") => cli_actions(&args[1..]),
         Some("ql") => ralfred::quicklook::cli(&args[1..]),
+        Some("icon") => ralfred::icons::cli(&args[1..]),
         Some("migrate") => cli_migrate(&args[1..]),
         Some("config") => cli_config(),
         Some("calc") => {
@@ -127,6 +128,10 @@ fn act(r: &Candidate, store: &Store) {
             } else {
                 let _ = exec_action(Action::OpenTerminal(target.into()));
             }
+            return;
+        }
+        if typ.starts_with("onepassword") {
+            let _ = ralfred::onepassword::run(a);
             return;
         }
         if typ.starts_with("music") {

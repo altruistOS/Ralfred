@@ -100,6 +100,21 @@ chk "ql-toggle-open" "quicklook: file://" "$(RALFRED_QL_NOEXEC=1 $R ql /etc/host
 chk "ql-text-fallback" "file://" "$(RALFRED_QL_NOEXEC=1 $R ql /nonexistent/zzq)"
 chk "ql-text-tempfile" "hello-from-ql" "$(RALFRED_QL_NOEXEC=1 $R ql 'hello-from-ql' > /dev/null; grep -r hello-from-ql "$H/Databases/quicklook" 2>/dev/null | head -1)"
 
+echo "== 2a2e. 1password (fixture) + icons =="
+cat > "$H/op.json" <<JSON
+[{"id":"G77","vault":"Personal","title":"GitHub","user":"ken@x.io"},
+ {"id":"A88","vault":"Work","title":"AWS Console","user":"ops"}]
+JSON
+export RALFRED_OP_JSON="$H/op.json"
+chk "op-item-fill-action" "onepassword:fill/Personal/G77" "$($R 'op github')"
+chk "op-search-fallback" "onepassword:search:slack" "$($R 'op slack')"
+chk "op-by-user" "GitHub" "$($R 'op ken@x.io')"
+chk "op-bare-hint" "1Password" "$($R op)"
+export RALFRED_OP_JSON=""
+chk "icon-raster-png" "PNG image data" "$($R icon /System/Applications/Utilities/Terminal.app | xargs file)"
+chk "icon-cache-hit" "same" "$(a=$($R icon /Applications/Safari.app 2>/dev/null || $R icon /System/Applications/Utilities/Terminal.app); b=$($R icon /Applications/Safari.app 2>/dev/null || $R icon /System/Applications/Utilities/Terminal.app); [ "$a" = "$b" ] && echo same)"
+chk "icon-missing-errors" "1" "$($R icon /nonexistent/zz 2>/dev/null; echo $?)"
+
 echo "== 2a3. themes =="
 chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
 chk "theme-list-light" "Alfred Light" "$($R theme list)"

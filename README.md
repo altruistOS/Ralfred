@@ -4,7 +4,7 @@ Clean-room reimplementation of Alfred 5's core feature set, informed by
 reverse-engineering Alfred 5.8 (see `docs/RE_NOTES.md`). No Alfred code, assets,
 themes, or license logic copied; data formats aligned for interop.
 
-## Status (v0.9) → testing: `cargo test` (16 unit) + `bash tests/e2e.sh` (83 feature checks, isolated RALFRED_HOME, exit 0 = all green)
+## Status (v0.11) → testing: `cargo test` (18 unit) + `bash tests/e2e.sh` (94 feature checks, isolated RALFRED_HOME, exit 0 = all green)
 
 | Feature | State |
 |---|---|
@@ -67,3 +67,5 @@ shipped app for architecture study only; the binary's license strings and
 activation logic were deliberately not reproduced.
 - Contacts search (`c <name>` → call/email actions): live AppleScript backend (TCC-guarded, 3s-bounded) + JSON-fixture backend for deterministic tests
 - iTunes/Music module (`music <verb>` transport + `music <artist|album>` library search, AppleScript backend bounded by 3s, fixture backend for tests)
+- 1Password (`op <query>` → onepassword://search/open_and_fill schemes straight from the binary; fixture backend for tests)
+- Icon rendering (icns discovery → 64px sips raster into iconcache keyed by path-hash, served to the GUI rows over ralfred://icon/; qlmanage -t wedges on this machine, sips is the reliable path)

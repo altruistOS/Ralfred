@@ -114,6 +114,26 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     }
                     Cow::Owned(Vec::new())
                 }
+                "/icon" => {
+                    let raw = path.strip_prefix("/icon/").unwrap_or("").to_string();
+                    let p = url_decode(&raw);
+                    let png = crate::icons::icon_png(std::path::Path::new(&p));
+                    match png {
+                        Some(f) => {
+                            let bytes = std::fs::read(&f).unwrap_or_default();
+                            return Response::builder()
+                                .status(StatusCode::OK)
+                                .header("content-type", "image/png")
+                                .header("access-control-allow-origin", "*")
+                                .body(Cow::Owned(bytes))
+                                .unwrap();
+                        }
+                        None => return Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Cow::Owned(Vec::new()))
+                            .unwrap(),
+                    }
+                }
                 "/hide" => {
                     let _ = proxy_h.send_event(UserEvent(HIDE));
                     Cow::Owned(Vec::new())

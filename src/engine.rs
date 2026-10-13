@@ -41,6 +41,10 @@ pub fn act(r: &Candidate, store: &Store) {
             }
             return;
         }
+        if typ.starts_with("onepassword") {
+            let _ = crate::onepassword::run(a);
+            return;
+        }
         if typ.starts_with("music") {
             let _ = crate::itunes::run(a);
             return;
@@ -109,6 +113,8 @@ struct ItemMsg {
     t: String,
     s: String,
     k: String,
+    #[serde(default)]
+    i: String, // icon URL (protocol endpoint), empty when unresolvable
 }
 
 pub fn items_json(cands: &[Candidate]) -> String {
@@ -118,6 +124,12 @@ pub fn items_json(cands: &[Candidate]) -> String {
             t: c.title.clone(),
             s: c.subtitle.clone(),
             k: c.kind.label().to_string(),
+            i: match c.path.as_deref() {
+                Some(p) if std::path::Path::new(p).is_dir() || std::path::Path::new(p).is_file() => {
+                    format!("ralfred://icon/{}", p_esc(p))
+                }
+                _ => String::new(),
+            },
         })
         .collect();
     serde_json::to_string(&v).unwrap_or_else(|_| "[]".into())
@@ -132,6 +144,7 @@ padding:16px 20px;font-size:24px;border-radius:16px}
 .i:hover,.sel{background:#{{SELBG}}}
 .t{font-size:14px;color:#{{TEXT}};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .s{font-size:11px;color:#{{SUBTEXT}};margin-left:10px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ic{width:24px;height:24px;margin-right:10px;flex:0 0 24px}
 </style><input id=q placeholder="Search ralfred…" autofocus><div id=r style="display:none"></div>
 <script>
 let sel=0, items=[];
@@ -139,7 +152,7 @@ const q=document.getElementById('q'), r=document.getElementById('r');
 function esc(x){return x.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function draw(v){items=v;sel=0;
   r.style.display=v.length?'block':'none';
-  r.innerHTML=v.map((i,n)=>'<div class="i'+(n===sel?' sel':'')+'" onclick="go('+n+')"><div class=t>'+esc(i.t)+
+  r.innerHTML=v.map((i,n)=>'<div class="i'+(n===sel?' sel':'')+'" onclick="go('+n+')"><img class=ic src="'+(i.i||'')+'" onerror="this.style.display=\'none\'"'+(i.i?'':' style="display:none"')+'><div class=t>'+esc(i.t)+
     '</div><div class=s>'+esc(i.s)+' '+esc(i.k)+'</div></div>').join('');
 }
 function mark(){[...r.children].forEach((c,n)=>c.className='i'+(n===sel?' sel':''))}
@@ -161,6 +174,12 @@ window.rfTheme=()=>{fetch('ralfred://api/probe?bg='+RF_BG.replace('#',''))};
 window.rfExec=n=>{fetch('ralfred://api/exec?id='+n)};
 window.rfReset=()=>{q.value='';q.focus();draw([])};
 </script>"#;
+
+fn p_esc(s: &str) -> String {
+    s.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b == b'/' { (b as char).to_string() } else { format!("%{:02X}", b) })
+        .collect()
+}
 
 /// HTML with the given theme's colors injected.
 pub fn themed(theme: &crate::theme::Theme) -> String {

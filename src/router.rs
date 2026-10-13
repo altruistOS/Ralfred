@@ -110,6 +110,9 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     // `c <name>` / `contacts <name>`; fixture-backed in tests via RALFRED_CONTACTS_JSON.
     results.extend(crate::contacts::candidates(q));
 
+    // 4a1. 1password (evidence: Alfred1PasswordManager + onepassword:// URL schemes)
+    results.extend(crate::onepassword::candidates(q));
+
     // 4a2. itunes/music (evidence: AlfredFeatureiTunes, alfred.itunes.play/.random)
     results.extend(crate::itunes::candidates(q));
 
