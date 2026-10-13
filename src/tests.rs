@@ -214,7 +214,7 @@ fn icons_and_onepassword() {
     std::fs::remove_file(&f).ok();
 }
 
-static INSTALL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static INSTALL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn install_lifecycle_sandboxed() {

@@ -2,7 +2,11 @@ use std::path::PathBuf;
 
 #[test]
 fn migrate_from_fake_home() {
+    // env is process-global; serialize with the other env-touching tests
+    let _lock = crate::tests::INSTALL_TEST_LOCK.lock().unwrap();
     let root = std::env::temp_dir().join(format!("ralfred_mig_{}", std::process::id()));
+    std::env::remove_var("RALFRED_ALFRED_HOME");
+    std::env::remove_var("RALFRED_HOME");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("Databases")).unwrap();
     let wfdir = root.join("Alfred.alfredpreferences/workflows/AAAA1111-2222-4333-8444-555566667777");
@@ -21,6 +25,10 @@ fn migrate_from_fake_home() {
     db.execute_batch("CREATE TABLE snippets(uid TEXT PRIMARY KEY, name TEXT, keyword TEXT, snippet TEXT, snippetrtf BLOB, collection TEXT, autoexpand BOOLEAN, ignoredynamicplaceholders BOOLEAN); INSERT INTO snippets VALUES('x1','n','mkq','hello',NULL,'default',1,0);").unwrap();
     drop(db);
     std::env::set_var("RALFRED_ALFRED_HOME", &root);
+    // destination must be isolated too — otherwise this test writes into the
+    // real app-support dir and a leftover from a previous run makes it skip.
+    let dst = std::env::temp_dir().join(format!("ralfred_migdstd_{}", std::process::id()));
+    std::env::set_var("RALFRED_HOME", &dst);
     let rep = crate::migration::migrate(false);
     assert_eq!(rep.workflows_copied, 1, "wf report {:?}", rep.errors);
     assert!(rep.errors.is_empty(), "errors {:?}", rep.errors);
