@@ -101,6 +101,19 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     }
                     Cow::Owned(br#"{"ok":true}"#.to_vec())
                 }
+                "/ql" => {
+                    let n: usize = query
+                        .strip_prefix("id=")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    let c = sh.items.lock().unwrap().get(n).cloned();
+                    if let Some(c) = c {
+                        if let Some(u) = crate::quicklook::preview_url(c.path.as_deref(), Some(&c.subtitle)) {
+                            crate::quicklook::toggle(&u);
+                        }
+                    }
+                    Cow::Owned(Vec::new())
+                }
                 "/hide" => {
                     let _ = proxy_h.send_event(UserEvent(HIDE));
                     Cow::Owned(Vec::new())

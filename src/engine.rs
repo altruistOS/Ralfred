@@ -151,6 +151,7 @@ q.addEventListener('keydown',e=>{
   else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(sel+1,items.length-1);mark()}
   else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(sel-1,0);mark()}
   else if(e.key==='Escape'){fetch('ralfred://api/hide')}
+  else if(e.metaKey&&e.key.toLowerCase()==='y'){e.preventDefault();if(items.length)fetch('ralfred://api/ql?id='+sel)}
 });
 q.addEventListener('input',()=>rfSearch(q.value));
 window.rfSearch=rfSearch;

@@ -54,6 +54,7 @@ fn main() {
         Some("expand") => cli_expand(&args[1..]),
         Some("hotkey") => cli_hotkey(&args[1..]),
         Some("actions") => cli_actions(&args[1..]),
+        Some("ql") => ralfred::quicklook::cli(&args[1..]),
         Some("migrate") => cli_migrate(&args[1..]),
         Some("config") => cli_config(),
         Some("calc") => {

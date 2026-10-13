@@ -92,6 +92,14 @@ chk "music-playbyname-tag" "music:playbyname:Imagine" "$($R 'music imagine')"
 chk "music-no-spurious" "0" "$($R 'musicx queen' | grep -c Bohemian || echo 0)"
 export RALFRED_MUSIC_JSON=""   # live backend must not fire later in suite
 
+echo "== 2a2d. quicklook =="
+chk "ql-path-resolve" "file://" "$(RALFRED_QL_NOEXEC=1 $R ql /etc/hosts)"
+# toggle state machine via env-driven CLI: open then close
+chk "ql-toggle-open" "quicklook: file://" "$(RALFRED_QL_NOEXEC=1 $R ql /etc/hosts)"
+# missing path -> text-fallback: argument materialized into temp folder (Alfred's trick)
+chk "ql-text-fallback" "file://" "$(RALFRED_QL_NOEXEC=1 $R ql /nonexistent/zzq)"
+chk "ql-text-tempfile" "hello-from-ql" "$(RALFRED_QL_NOEXEC=1 $R ql 'hello-from-ql' > /dev/null; grep -r hello-from-ql "$H/Databases/quicklook" 2>/dev/null | head -1)"
+
 echo "== 2a3. themes =="
 chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
 chk "theme-list-light" "Alfred Light" "$($R theme list)"

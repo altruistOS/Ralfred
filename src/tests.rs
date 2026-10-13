@@ -155,3 +155,30 @@ fn itunes_verbs_and_fixture() {
     std::env::remove_var("RALFRED_MUSIC_JSON");
     std::fs::remove_file(&f).ok();
 }
+
+#[test]
+fn quicklook_url_and_toggle() {
+    // real file -> canonical file://
+    let u = crate::quicklook::preview_url(Some("/etc/hosts"), None).unwrap();
+    assert!(u.starts_with("file:///"));
+    assert!(u.ends_with("hosts"));
+    // missing path + text -> materialized temp file
+    let u2 = crate::quicklook::preview_url(Some("/nonexistent/zz"), Some("hello ql"))
+        .unwrap();
+    assert!(u2.starts_with("file://"));
+    let p = u2.strip_prefix("file://").unwrap();
+    assert_eq!(std::fs::read_to_string(p).unwrap(), "hello ql");
+    // no path no text -> None
+    assert!(crate::quicklook::preview_url(None, None).is_none());
+    // toggle state machine (no-exec mode): open, same->close, reopen, switch
+    std::env::set_var("RALFRED_QL_NOEXEC", "1");
+    let open = crate::quicklook::toggle("file:///tmp/a").unwrap();
+    assert_eq!(open, "file:///tmp/a");
+    assert!(crate::quicklook::toggle("file:///tmp/a").is_none()); // second press closes
+    let again = crate::quicklook::toggle("file:///tmp/a").unwrap();
+    assert_eq!(again, "file:///tmp/a");
+    let other = crate::quicklook::toggle("file:///tmp/b").unwrap(); // switch
+    assert_eq!(other, "file:///tmp/b");
+    assert!(crate::quicklook::toggle("file:///tmp/b").is_none());
+    std::env::remove_var("RALFRED_QL_NOEXEC");
+}
