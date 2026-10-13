@@ -251,3 +251,25 @@ fn install_lifecycle_sandboxed() {
     std::env::remove_var("RALFRED_INSTALL_NOLAUNCHD");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn webbookmarks_fixture() {
+    let f = std::env::temp_dir().join("rf_bm_test.json");
+    std::fs::write(&f, r#"[{"title":"Rust Book","url":"https://doc.rust-lang.org/book/"},{"title":"arXiv","url":"https://arxiv.org"}]"#).unwrap();
+    std::env::set_var("RALFRED_BM_JSON", &f);
+    let c = crate::webbookmarks::candidates("bm rust");
+    assert_eq!(c.len(), 1);
+    assert!(c[0].action.as_deref().unwrap().starts_with("openurl:https://doc.rust-lang"));
+    // url substring search
+    let u = crate::webbookmarks::candidates("bm arxiv.org");
+    assert_eq!(u.len(), 1);
+    assert_eq!(u[0].title, "arXiv");
+    // bare + keywords
+    assert!(crate::webbookmarks::candidates("bm").len() == 1);
+    assert!(crate::webbookmarks::candidates("bookmarks rust").len() == 1);
+    assert!(crate::webbookmarks::candidates("bmzz rust").is_empty());
+    // no-match fixture -> empty (never falls through to live in tests)
+    assert!(crate::webbookmarks::candidates("bm zzznope").is_empty());
+    std::env::remove_var("RALFRED_BM_JSON");
+    std::fs::remove_file(&f).ok();
+}

@@ -125,6 +125,20 @@ chk "install-uninstall" "uninstalled" "$($R install uninstall)"
 chk "install-idempotent" "not installed" "$($R install uninstall; $R install status)"
 export RALFRED_INSTALL_NOLAUNCHD=""
 
+echo "== 2a2g. web bookmarks (fixture backend) =="
+cat > "$H/bm.json" <<JSON
+[{"title":"Rust Programming Language","url":"https://www.rust-lang.org/"},
+ {"title":"Nous Research","url":"https://nousresearch.com"},
+ {"title":"arXiv: Data Storage","url":"https://arxiv.org/"}]
+JSON
+export RALFRED_BM_JSON="$H/bm.json"
+chk "bm-title-search" "Rust Programming Language" "$($R 'bm rust')"
+chk "bm-url-search" "arXiv" "$($R 'bm arxiv.org')"
+chk "bm-openurl-action" "openurl:https://nousresearch.com" "$($R 'bm nous')"
+chk "bm-bare-hint" "Web Bookmarks" "$($R bm)"
+chk "bm-keyword-boundary" "0" "$($R 'bmzz rust' | grep -c Rust || echo 0)"
+export RALFRED_BM_JSON=""
+
 echo "== 2a3. themes =="
 chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
 chk "theme-list-light" "Alfred Light" "$($R theme list)"
