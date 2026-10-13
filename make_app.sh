@@ -8,6 +8,15 @@ export PATH=/opt/homebrew/bin:$PATH
 APP=/Volumes/Elements-Mini/GitHub/Ralfred.app
 BIN=target/release/ralfred
 
+# React front end first (its bundle is embedded by include_bytes!)
+if command -v npm >/dev/null 2>&1; then
+  ( cd web && npm install --no-audit --no-fund && npm run build ) \
+    || echo "WARN: web build failed — embedding whatever dist/ already has"
+fi
+
+# binary
+cargo build --release
+
 # fresh bundle
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
