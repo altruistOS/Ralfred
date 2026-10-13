@@ -154,8 +154,8 @@ chk "settings-hotkey-default" "ALT+CTRL+SPACE" "$(RALFRED_HOME=$H2 $R config)"
 chk "settings-theme-persist" "midnight" "$(RALFRED_HOME=$H2 $R theme set midnight >/dev/null 2>&1; grep -o midnight $H2/Alfred.alfredpreferences/preferences/global/ralfred_config.json | head -1)"
 
 echo "== 2a3. themes =="
-chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
-chk "theme-list-light" "Alfred Light" "$($R theme list)"
+chk "theme-list" "Alfred Modern Dark (alfred-dark)" "$($R theme list)"
+chk "theme-list-light" "Alfred Modern Light" "$($R theme list)"
 chk "theme-set" "Midnight" "$($R theme set midnight)"
 chk "theme-current" "background = #0d1117EE" "$($R theme show midnight)"
 $R theme new e2edark --name "E2E Dark" --bg 10203040 --text aabbcc --sel 010203FF > /dev/null

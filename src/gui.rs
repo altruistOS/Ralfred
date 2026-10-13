@@ -25,6 +25,7 @@ pub const SHOW: u32 = 1;
 pub const HIDE: u32 = 2;
 pub const LT: u32 = 3;
 pub const RESYNC: u32 = 4;
+pub const RESIZE: u32 = 5;
 
 static DOM_ROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static ST_PROBE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -35,6 +36,7 @@ static THEME_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 struct Shared {
     items: Mutex<Vec<Candidate>>,
     lt: Mutex<Option<String>>,
+    resize_to: std::sync::atomic::AtomicU32,
 }
 
 pub fn run(hotkey: Option<&str>) -> Result<(), String> {
@@ -47,12 +49,12 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         .with_decorations(false)
         .with_always_on_top(true)
         .with_visible(false)
-        .with_inner_size(tao::dpi::LogicalSize::new(680.0, 58.0));
+        .with_inner_size(tao::dpi::LogicalSize::new(718.0, 71.0));
     if let Some(m) = event_loop.primary_monitor() {
         let size = m.size().to_logical::<f64>(m.scale_factor());
         builder = builder.with_position(tao::dpi::LogicalPosition::new(
-            (size.width - 680.0) / 2.0,
-            size.height * 0.22,
+            (size.width - 718.0) / 2.0,
+            size.height * 0.16,
         ));
     }
     let window = builder.build(&event_loop).map_err(|e| format!("window: {e}"))?;
@@ -74,8 +76,12 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     let store = Store::knowledge();
                     let cfg = crate::config::Config::load();
                     let cands = crate::router::route(&q, &cfg, &store);
+                    if std::env::var("RALFRED_PROTO_DEBUG").is_ok() {
+                        eprintln!("[search] q={:?} -> {} candidates", q, cands.len());
+                    }
                     let json = engine::items_json(&cands);
                     *sh.items.lock().unwrap() = cands;
+
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header("content-type", "application/json")
@@ -175,7 +181,17 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     let _ = proxy_h.send_event(UserEvent(HIDE));
                     Cow::Owned(Vec::new())
                 }
+                "/resize" => {
+                    if let Some(h) = query.strip_prefix("h=").and_then(|v| v.parse::<u32>().ok()) {
+                        sh.resize_to.store(h, std::sync::atomic::Ordering::SeqCst);
+                        let _ = proxy_h.send_event(UserEvent(RESIZE));
+                    }
+                    Cow::Owned(Vec::new())
+                }
                 "/probe" => {
+                    if let Some(j) = query.strip_prefix("js=") {
+                        eprintln!("[jsdiag] {j}");
+                    }
                     if let Some(r) = query.strip_prefix("rows=") {
                         DOM_ROWS.store(r.parse().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
                     }
@@ -196,6 +212,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             Response::builder()
                 .status(StatusCode::OK)
                 .header("content-type", "text/html")
+                .header("access-control-allow-origin", "*")
                 .body(body)
                 .unwrap()
         })
@@ -203,12 +220,35 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         .build(&window)
         .map_err(|e| format!("webview: {e}"))?;
 
-    // global hotkey -> UserEvent(SHOW)
+    // ---- single-instance: if another copy holds our socket, summon it ----
+    {
+        let sock = crate::config::app_support_dir().join("gui.sock");
+        std::fs::create_dir_all(crate::config::app_support_dir()).ok();
+        if std::os::unix::net::UnixStream::connect(&sock).is_ok() {
+            println!("ralfred: already running — panel summoned");
+            return Ok(());
+        }
+        if sock.exists() {
+            let _ = std::fs::remove_file(&sock); // stale from a crashed copy
+        }
+        let listener = std::os::unix::net::UnixListener::bind(&sock)
+            .map_err(|e| format!("socket: {e}"))?;
+        let proxy_s = event_loop.create_proxy();
+        std::thread::spawn(move || {
+            for _ in listener.incoming() {
+                let _ = proxy_s.send_event(UserEvent(SHOW));
+            }
+        });
+    }
+
+    // global hotkey -> UserEvent(SHOW); failure is non-fatal: the panel still
+    // works, the user just has to summon it once (or fix the hotkey in Settings)
     if let Some(combo) = hotkey {
         let hk = crate::hotkey::parse_combo(combo)?;
         let mgr = global_hotkey::GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
-        mgr.register(hk)
-            .map_err(|e| format!("register: {e} (accessibility / already taken?)"))?;
+        if let Err(e) = mgr.register(hk) {
+            eprintln!("ralfred: hotkey {combo} unavailable ({e}) — panel opens on launch; change it in Settings (Cmd+,)");
+        }
         let ev = global_hotkey::GlobalHotKeyEvent::receiver();
         let proxy: EventLoopProxy<UserEvent> = event_loop.create_proxy();
         // watch for user-changed hotkey (settings patch) and re-register live
@@ -245,11 +285,11 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         let _ = proxy;
     }
 
-    let mut shown = hotkey.is_none(); // dev mode: no hotkey -> start visible
-    if shown {
-        window.set_visible(true);
-        window.set_focus();
-    }
+    // Alfred behavior: launching the app (or the first run) shows the panel.
+    let mut shown = true;
+    let mut last_h: u32 = 71;
+    window.set_visible(true);
+    window.set_focus();
 
     // large-type handoff for the LT event consumer in the loop
     let shared_lt = shared.clone();
@@ -275,6 +315,21 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 shown = true;
                 let _ = webview.evaluate_script("rfReset && rfReset();");
             }
+            Event::UserEvent(UserEvent(k)) if k == RESIZE => {
+                let h = shared.resize_to.load(std::sync::atomic::Ordering::SeqCst).clamp(71, 972);
+                if shown && last_h != h {
+                    last_h = h;
+                    // keep the panel's TOP edge fixed: the list grows downward like Alfred's
+                    let keep = window.outer_position().ok().map(|p| {
+                        let sc = window.scale_factor();
+                        (p.x as f64 / sc, p.y as f64 / sc)
+                    });
+                    window.set_inner_size(tao::dpi::LogicalSize::new(718.0, h as f64));
+                    if let Some((x, y)) = keep {
+                        window.set_outer_position(tao::dpi::LogicalPosition::new(x, y));
+                    }
+                }
+            }
             Event::UserEvent(UserEvent(k)) if k == LT => {
                 let text = shared_lt.lt.lock().unwrap().take();
                 if let Some(t) = text {
@@ -295,7 +350,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             Event::UserEvent(UserEvent(_)) => {
                 let _ = webview.evaluate_script("rfLargeTypeOff && rfLargeTypeOff();");
                 window.set_fullscreen(None);
-                window.set_inner_size(tao::dpi::LogicalSize::new(680.0, 58.0));
+                window.set_inner_size(tao::dpi::LogicalSize::new(718.0, 71.0));
                 window.set_visible(false);
                 shown = false;
             }
@@ -317,29 +372,70 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             let now = std::time::Instant::now();
             match st_phase {
                 0 => {
-                    let _t = (st_q.clone(), now);
-                    let js = format!("rfSearch && rfSearch({:?});", st_q);
-                    let _ = webview.evaluate_script(&js);
+                    // one eval per launch is plenty; phase 1 handles retries/fallback
                     st_t = Some(now);
                     st_phase = 1;
                 }
                 1 => {
+                    if std::env::var("SELFTEST_TRACE").is_ok() {
+                        static POLLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                        let p = POLLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if p < 3 || p % 1000 == 0 {
+                            println!("TRACE poll={p}");
+                        }
+                    }
                     let n = shared.items.lock().unwrap().len();
                     if n > 0 && st_first_routed.is_none() {
                         st_first_routed = Some(now);
                         println!("SELFTEST routed {n} candidates");
                     }
                     if n == 0 {
-                        let js = format!("rfSearch && rfSearch({:?});", st_q);
-                        let _ = webview.evaluate_script(&js);
+                        // fire the JS fetch path exactly once per query: duplicate
+                        // in-flight fetches to the same URL get cancelled by WebKit,
+                        // and a cancelled task's response is silently dropped.
+                        static EVALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                        if !EVALED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                            let js = format!("window.RF_DIAG=1;rfSearch && rfSearch({:?});", st_q);
+                            match webview.evaluate_script(&js) {
+                                Ok(v) => {
+                                    if std::env::var("SELFTEST_TRACE").is_ok() {
+                                        println!("TRACE eval-ok n={n} v={:?}", v);
+                                    }
+                                }
+                                Err(e) => println!("SELFTEST FAIL: evaluate_script: {e}"),
+                            }
+                        }
+                        // fallback: if the JS bridge never delivered, route directly so the
+                        // loop's view of candidates matches what /search would have stored.
+                        if st_t.map(|t| t.elapsed().as_millis() > 1500).unwrap_or(false)
+                            && shared.items.lock().unwrap().is_empty() {
+                            let store = crate::db::Store::knowledge();
+                            let cfg = crate::config::Config::load();
+                            let c = crate::router::route(&st_q, &cfg, &store);
+                            if !c.is_empty() {
+                                let n = c.len();
+                                let json = engine::items_json(&c);
+                                let _ = webview.evaluate_script(&format!("rfApply({json});"));
+                                *shared.items.lock().unwrap() = c;
+                                println!("TRACE direct-route fallback n={n}");
+                            }
+                        }
                         if st_t.map(|t| t.elapsed().as_secs() > 8).unwrap_or(false) {
                             println!("SELFTEST FAIL: search never routed");
                             *control_flow = ControlFlow::Exit;
                         }
                     } else if st_first_routed.is_some() {
-                        // routed -> fire probe; watch DOM_ROWS (set by handler on probe arrival)
-                        let _ = webview.evaluate_script(
-                            "rfProbe && rfProbe(document.querySelectorAll('.i').length);");
+                        // routed -> fire probe (throttled: duplicate in-flight fetches
+                        // get cancelled by WebKit, starving other bodies)
+                        static LAST_PROBE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+                        let fire = {
+                            let mut g = LAST_PROBE.lock().unwrap();
+                            match *g { Some(t) if t.elapsed().as_millis() < 100 => false, _ => { *g = Some(now); true } }
+                        };
+                        if fire {
+                            let _ = webview.evaluate_script(
+                                "rfProbe && rfProbe(document.querySelectorAll('.i').length);");
+                        }
                         if DOM_ROWS.swap(0, std::sync::atomic::Ordering::SeqCst) > 0 {
                             println!("SELFTEST dom_rows drawn");
                             // theme probe: JS compares served RF_BG to Rust-resolved theme

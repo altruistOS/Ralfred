@@ -16,8 +16,11 @@ use std::path::PathBuf;
 pub struct Theme {
     pub name: String,
     pub uid: String,
-    /// panel + search field background (RRGGBB + optional alpha hex)
+    /// panel background (RRGGBB + optional alpha hex)
     pub background: String,
+    /// inner search-field well (Alfred's field material sits darker)
+    #[serde(default = "Theme::default_field")]
+    pub field: String,
     pub text: String,
     pub subtext: String,
     pub selection_background: String,
@@ -26,32 +29,40 @@ pub struct Theme {
 }
 
 impl Theme {
+    pub fn default_field() -> String {
+        "111010F8".into()
+    }
+
     pub fn builtin(name: &str) -> Option<Theme> {
         let t = match name {
             "alfred-dark" => Theme {
-                name: "Alfred Dark".into(),
+                name: "Alfred Modern Dark".into(),
                 uid: "alfred-dark".into(),
-                background: "3a3a3aE8".into(),
+                // measured from Alfred 5 screenshots (dark mode)
+                background: "171516F0".into(),
+                field: "111010F8".into(),
                 text: "ffffff".into(),
-                subtext: "bbbbbb".into(),
-                selection_background: "0069d9B0".into(),
+                subtext: "d4e3e4".into(),
+                selection_background: "2f767c".into(),
                 selection_text: "ffffff".into(),
-                border: "55555580".into(),
+                border: "2a2a2c80".into(),
             },
             "alfred-light" => Theme {
-                name: "Alfred Light".into(),
+                name: "Alfred Modern Light".into(),
                 uid: "alfred-light".into(),
-                background: "ffffffEE".into(),
-                text: "222222".into(),
-                subtext: "777777".into(),
-                selection_background: "2d7ff9D0".into(),
+                background: "fcfcfcEE".into(),
+                field: "f1f2f2F8".into(),
+                text: "202020".into(),
+                subtext: "6f6f6f".into(),
+                selection_background: "2f767c".into(),
                 selection_text: "ffffff".into(),
-                border: "00000022".into(),
+                border: "d0d0d080".into(),
             },
             "midnight" => Theme {
                 name: "Midnight".into(),
                 uid: "midnight".into(),
                 background: "0d1117EE".into(),
+                field: "090c10F8".into(),
                 text: "e6edf3".into(),
                 subtext: "8b949e".into(),
                 selection_background: "1f6febC0".into(),
@@ -113,6 +124,7 @@ impl Theme {
     /// inject theme colors into an HTML template with {{placeholders}}
     pub fn apply_html(&self, html: &str) -> String {
         html.replace("{{BG}}", &self.background)
+            .replace("{{FIELD}}", &self.field)
             .replace("{{TEXT}}", &self.text)
             .replace("{{SUBTEXT}}", &self.subtext)
             .replace("{{SELBG}}", &self.selection_background)
@@ -153,6 +165,7 @@ pub fn cli(args: &[String]) {
             let t = Theme::resolve(uid);
             println!("{} ({}):", t.name, t.uid);
             println!("  background = #{}", t.background);
+            println!("  field      = #{}", t.field);
             println!("  text       = #{}", t.text);
             println!("  subtext    = #{}", t.subtext);
             println!("  selection  = #{}", t.selection_background);

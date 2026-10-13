@@ -140,62 +140,78 @@ pub fn items_json(cands: &[Candidate]) -> String {
 }
 
 pub const HTML: &str = r#"<!doctype html><meta charset=utf-8><style>
-html,body{margin:0;height:100%;font-family:-apple-system,system-ui;background:transparent;overflow:hidden}
-#q{width:100%;box-sizing:border-box;border:0;background:#{{BG}};color:#{{TEXT}};outline:none;
-padding:16px 20px;font-size:24px;border-radius:16px}
-#r{margin-top:6px;background:#{{BG}};border-radius:12px;overflow:hidden;max-height:280px;overflow-y:auto}
-.i{display:flex;justify-content:space-between;align-items:center;padding:8px 18px;cursor:pointer}
-.i:hover,.sel{background:#{{SELBG}}}
-.t{font-size:14px;color:#{{TEXT}};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.s{font-size:11px;color:#{{SUBTEXT}};margin-left:10px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ic{width:24px;height:24px;margin-right:10px;flex:0 0 24px}
+html,body{margin:0;height:100%;font-family:-apple-system,system-ui;background:transparent;overflow:hidden;-webkit-user-select:none}
+#p{display:flex;flex-direction:column;position:absolute;inset:0;border-radius:12px;background:#{{BG}};box-shadow:0 8px 30px rgba(0,0,0,.55);overflow:hidden}
+#fw{padding:5px 5px 0 5px;flex:0 0 auto}
+#q{width:100%;box-sizing:border-box;border:0;background:#{{FIELD}};color:#{{TEXT}};outline:none;border-radius:8px;height:61px;padding:0 18px;font-size:30px;font-weight:400;caret-color:#{{TEXT}}}
+#r{flex:1 1 auto;margin:0;padding:0 9px 9px 9px;overflow:hidden;display:none}
+.i{display:flex;align-items:center;height:46px;border-radius:4px;padding:0 13px;cursor:default;position:relative}
+.i.sel{background:#{{SELBG}}}
+.ic{width:28px;height:28px;flex:0 0 28px;margin-right:11px;image-rendering:auto}
+.tx{flex:1 1 auto;min-width:0}
+.t{font-size:14px;color:#{{TEXT}};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:17px}
+.s{font-size:11px;color:#{{SUBTEXT}};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:13px}
+.h{color:#{{SUBTEXT}};font-size:14px;margin-left:10px;flex:0 0 auto}
+.i.sel .h{color:#{{TEXT}}}
 #lt{display:none;position:fixed;inset:0;background:#{{BG}};color:#{{TEXT}};z-index:99;align-items:center;justify-content:center;text-align:center;padding:6vw;font-weight:600;word-break:break-all;user-select:all}
-#set{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:98;align-items:flex-start;justify-content:center;padding-top:12vh}
-#setw{width:600px;max-height:70vh;background:#{{BG}};border-radius:12px;color:#{{TEXT}};overflow:hidden;display:flex}
-#setnav{width:150px;border-right:1px solid #{{SELBG}};flex:0 0 150px}
-#setnav div{padding:9px 14px;font-size:12px;cursor:pointer}
-#setnav div.on{background:#{{SELBG}}}
-#setbody{flex:1;padding:14px 18px;overflow-y:auto}
-.frow{display:flex;justify-content:space-between;align-items:center;margin:10px 0;font-size:13px}
-.frow label{flex:1}
-.frow input[type=text],.frow select{width:220px;background:#{{SELBG}};border:1px solid #{{SELBG}};color:#{{TEXT}};border-radius:6px;padding:5px 8px;font-size:12px}
-.frow textarea{width:220px;height:56px;background:#{{SELBG}};border:1px solid #{{SELBG}};color:#{{TEXT}};border-radius:6px;padding:5px 8px;font-size:11px;font-family:ui-monospace,monospace}
+#set{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:98;align-items:flex-start;justify-content:center;padding-top:10vh;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#setw{width:640px;max-height:76vh;background:#{{FIELD}};border:1px solid #{{SELBG}};border-radius:12px;color:#{{TEXT}};overflow:hidden;display:flex}
+#setnav{width:170px;border-right:1px solid #{{SELBG}};flex:0 0 170px;padding:8px 0}
+#setnav div{padding:10px 16px;font-size:13px;cursor:pointer;color:#{{SUBTEXT}}}
+#setnav div.on{background:#{{SELBG}};color:#{{TEXT}}}
+#setbody{flex:1;padding:16px 20px;overflow-y:auto}
+.frow{display:flex;justify-content:space-between;align-items:center;margin:12px 0;font-size:13px}
+.frow label{flex:1;padding-right:14px}
+.frow input[type=text],.frow select{width:240px;background:#{{BG}};border:1px solid #{{SELBG}};color:#{{TEXT}};border-radius:6px;padding:6px 9px;font-size:13px}
+.frow textarea{width:240px;height:64px;background:#{{BG}};border:1px solid #{{SELBG}};color:#{{TEXT}};border-radius:6px;padding:6px 9px;font-size:11px;font-family:ui-monospace,monospace}
 .frow .hint{display:block;font-size:10px;color:#{{SUBTEXT}};margin-top:2px}
-</style><div id="set"><div id="setw"><div id="setnav"></div><div id="setbody"></div></div></div><div id="lt"></div><input id=q placeholder="Search ralfred…" autofocus><div id=r style="display:none"></div>
+</style>
+<div id="p"><div id="fw"><input id=q autofocus spellcheck=false></div><div id=r></div></div>
+<div id="lt"></div>
+<div id="set"><div id="setw"><div id="setnav"></div><div id="setbody"></div></div></div>
 <script>
 let sel=0, items=[];
 const q=document.getElementById('q'), r=document.getElementById('r');
 function esc(x){return x.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
-function draw(v){items=v;sel=0;
+function hint(n){return n===0?'&#8617;':'&#8984;'+(n+1)}
+function sizeSync(){const h=document.getElementById('p').scrollHeight;fetch('ralfred://api/resize?h='+Math.min(Math.max(h,71),972))}
+function draw(v){if(window.RF_DIAG)fetch('ralfred://api/probe?js=draw'+v.length);items=v;sel=0;
   r.style.display=v.length?'block':'none';
-  r.innerHTML=v.map((i,n)=>'<div class="i'+(n===sel?' sel':'')+'" onclick="go('+n+')"><img class=ic src="'+(i.i||'')+'" onerror="this.style.display=\'none\'"'+(i.i?'':' style="display:none"')+'><div class=t>'+esc(i.t)+
-    '</div><div class=s>'+esc(i.s)+' '+esc(i.k)+'</div></div>').join('');
+  r.innerHTML=v.map((i,n)=>'<div class="i'+(n===sel?' sel':'')+'" onclick="go('+n+')" onmouseover="pick('+n+')">'+
+    '<img class=ic src="'+(i.i||'')+'" onerror="this.style.display=\'none\'">'+
+    '<div class=tx><div class=t>'+esc(i.t)+'</div><div class=s>'+esc(i.s)+'</div></div>'+
+    '<div class=h>'+hint(n)+'</div></div>').join('');
+  sizeSync();
+  window.rfProbe(v.length);
 }
-function mark(){[...r.children].forEach((c,n)=>c.className='i'+(n===sel?' sel':''))}
+function mark(){const c=[...r.children];c.forEach((c2,n)=>c2.className='i'+(n===sel?' sel':''));sizeSync()}
+function pick(n){if(n!==sel){sel=n;mark()}}
 function go(n){sel=n;fetch('ralfred://api/exec?id='+n)}
-function rfSearch(s){if(!s){draw([]);return}
-  fetch('ralfred://api/search?q='+encodeURIComponent(s)).then(x=>x.json()).then(draw)}
+window.addEventListener('error',e=>{document.title='JSERR:'+e.message;});
+function rfSearch(s){if(!s){draw([]);sizeSync();return}
+  fetch('ralfred://api/search?q='+encodeURIComponent(s)).then(x=>x.text()).then(t=>{if(window.RF_DIAG)fetch('ralfred://api/probe?js=TXT'+t.length);try{draw(JSON.parse(t))}catch(e){if(window.RF_DIAG)fetch('ralfred://api/probe?js=DERR'+encodeURIComponent(e.message))}}).catch(e=>{if(window.RF_DIAG)fetch('ralfred://api/probe?js=E'+encodeURIComponent(e.message))})}
 q.addEventListener('keydown',e=>{
   if(e.key==='Enter'){e.preventDefault();go(sel)}
   else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(sel+1,items.length-1);mark()}
   else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(sel-1,0);mark()}
   else if(e.key==='Escape'){if(document.getElementById('lt').style.display==='flex'){rfLargeTypeOff()}else if(document.getElementById('set').style.display==='flex'){rfSettings()}else{fetch('ralfred://api/hide')}}
   else if(e.metaKey&&e.key.toLowerCase()==='y'){e.preventDefault();if(items.length)fetch('ralfred://api/ql?id='+sel)}
-  else if(e.metaKey&&e.key===','){e.preventDefault();rfSettings()};
+  else if(e.metaKey&&e.key===','){e.preventDefault();rfSettings()}
+  else if(e.metaKey&&e.key>='1'&&e.key<='9'){e.preventDefault();if(items.length)go(parseInt(e.key)-1)}
 });
 q.addEventListener('input',()=>rfSearch(q.value));
-window.rfSearch=rfSearch;
+window.rfSearch=rfSearch;window.rfApply=d=>draw(d);document.title='BOOT';
 const RF_BG='#{{BG}}';
 window.rfProbe=n=>{fetch('ralfred://api/probe?rows='+n)};
 window.rfTheme=()=>{fetch('ralfred://api/probe?bg='+RF_BG.replace('#',''))};
 window.rfExec=n=>{fetch('ralfred://api/exec?id='+n)};
-window.rfReset=()=>{q.value='';q.focus();draw([])};
+window.rfReset=()=>{q.value='';q.focus();draw([]);sizeSync()};
 window.rfLargeType=(t,n)=>{const e=document.getElementById('lt');e.textContent=t;e.style.display='flex';e.style.fontSize=n+'px';};
 window.rfLargeTypeOff=()=>{const e=document.getElementById('lt');e.style.display='none';};
 let setDoc=null,setDirty=false;
 window.rfSettings=async function(){const o=document.getElementById('set');
   if(o.style.display==='flex'){if(setDirty)rfSetSave();o.style.display='none';return}
-  if(!setDoc){const r=await fetch('ralfred://api/settings');setDoc=await r.json();rfSetRender(0)}
+  if(!setDoc){const r=await fetch('ralfred://api/settings');setDoc=JSON.parse(await r.text());rfSetRender(0)}
   o.style.display='flex';q.blur();};
 function rfSetRender(sec){const nav=document.getElementById('setnav'),bd=document.getElementById('setbody');
   nav.innerHTML=setDoc.schema.sections.map((x,i)=>'<div class="'+(i===sec?'on':'')+'" onclick="rfSetRender('+i+')">'+x.title+'</div>').join('');
@@ -214,7 +230,7 @@ function rfSetRender(sec){const nav=document.getElementById('setnav'),bd=documen
 window.rfParseMap=t=>{const o={};t.split(String.fromCharCode(10)).forEach(l=>{const i=l.indexOf('=');if(i>0)o[l.slice(0,i).trim()]=l.slice(i+1).trim()});return o};
 window.rfSetEdit=(k,v)=>{setDoc.values[k]=v;setDirty=true;rfSetSave();};
 async function rfSetSave(){const r=await fetch('ralfred://api/settings',{method:'PATCH',body:JSON.stringify(setDoc.values)});
-  if(!r.ok){const j=await r.json().catch(()=>({error:'bad'}));alert('settings: '+(j.error||'save failed'))}
+  if(!r.ok){let j={error:'bad'};try{j=JSON.parse(await r.text())}catch(e){}alert('settings: '+(j.error||'save failed'))}
   else{setDirty=false;}}
 </script>"#;
 
