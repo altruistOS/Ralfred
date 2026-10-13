@@ -8,6 +8,15 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager};
 
 pub fn parse_combo(s: &str) -> Result<HotKey, String> {
     // "CTRL+SPACE", "ALT+CTRL+K", "SHIFT+/" — modifiers case-insensitive
+    // defensive trim: stray trailing junk from the command line (e.g. an
+    // accidental `"/` closing the user's quote) should not break registration.
+    // But a trailing `/` that is itself the key (`CTRL+/`) must survive — so
+    // strip it only when it hangs off a longer key token, not off a `+`.
+    let mut s = s.trim();
+    while s.ends_with('/') {
+        let before = &s[..s.len() - 1];
+        s = if before.ends_with('+') { break; } else { before };
+    }
     let parts: Vec<&str> = s.split('+').collect();
     if parts.len() < 2 {
         return Err(format!("need modifier+key, got: {s}"));
@@ -41,9 +50,9 @@ fn parse_code(key: &str) -> Result<Code, String> {
         other if other.len() == 1 && other.chars().next().unwrap().is_ascii_digit() => {
             return Code::from_str(&format!("Digit{other}")).map_err(|_| "bad digit".to_string());
         }
-        "slash" => "Slash",
-        "minus" => "Minus",
-        "equal" | "equals" => "Equal",
+        "slash" | "/" => "Slash",
+        "minus" | "-" => "Minus",
+        "equal" | "equals" | "=" => "Equal",
         other => other,
     };
     Code::from_str(name).map_err(|_| format!("unsupported key: {key}"))

@@ -294,3 +294,16 @@ fn largetype_candidates_and_scale() {
     assert_eq!(h.len(), 1);
     assert!(h[0].action.is_none());
 }
+
+#[test]
+fn hotkey_combo_robust_parsing() {
+    // normal
+    assert!(crate::hotkey::parse_combo("ALT+CTRL+SPACE").is_ok());
+    // trailing junk from the user's mis-closed quote
+    assert!(crate::hotkey::parse_combo("ALT+CTRL+SPACE/").is_ok());
+    assert!(crate::hotkey::parse_combo("CTRL+/").is_ok());
+    assert!(crate::hotkey::parse_combo("alt+ctrl+k").is_ok());
+    // still rejects garbage
+    assert!(crate::hotkey::parse_combo("JUSTKEY").is_err());
+    assert!(crate::hotkey::parse_combo("ALT+BADKEY123X").is_err());
+}
