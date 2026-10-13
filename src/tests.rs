@@ -1,0 +1,157 @@
+use crate::calc::{calculate, is_calc};
+use crate::search::fuzzy_score;
+
+#[test]
+fn arithmetic() {
+    assert_eq!(calculate("1+2*3").unwrap(), "7");
+    assert_eq!(calculate("(2+3)*6").unwrap(), "30");
+    assert_eq!(calculate("2^10").unwrap(), "1024");
+    assert_eq!(calculate("sqrt(144) + 10").unwrap(), "22");
+    assert_eq!(calculate("10 % 3").unwrap(), "1");
+    assert_eq!(calculate("-5 + 2").unwrap(), "-3");
+}
+
+#[test]
+fn conversions() {
+    let r = calculate("1 gb to mb").unwrap();
+    assert!(r.starts_with("1 gb = 1024 mb"), "got {r}");
+    let r = calculate("3.5km in m").unwrap();
+    assert!(r.contains("3500"), "got {r}");
+    let r = calculate("1 hour to s").unwrap();
+    assert!(r.contains("3600"), "got {r}");
+    assert!(calculate("1 m to s").is_none());
+}
+
+#[test]
+fn detector() {
+    assert!(is_calc("1+2"));
+    assert!(is_calc("(3)*4"));
+    assert!(!is_calc("safari"));
+    assert!(!is_calc("g query"));
+}
+
+#[test]
+fn invalid() {
+    assert!(calculate("1/0").is_none());
+    assert!(calculate("2 * * 3").is_none());
+    assert!(calculate("1 + abc").is_none());
+    assert!(calculate("(1").is_none());
+    assert_eq!(calculate("2 + + 3").unwrap(), "5"); // unary plus
+}
+
+#[test]
+fn fuzz() {
+    assert!(fuzzy_score("saf", "Safari") > 100.0);
+    assert!(fuzzy_score("saf", "Firefox") == 0.0);
+    assert!(fuzzy_score("tc", "Text Console") > 0.0);
+    assert!(fuzzy_score("abc", "abc") > fuzzy_score("abc", "abcdef"));
+}
+
+#[test]
+fn expand_match() {
+    let rows = vec![
+        ("omw".to_string(), "On my way!".to_string()),
+        ("thx".to_string(), "Thanks!".to_string()),
+    ];
+    // plain suffix match at start
+    assert_eq!(crate::expand::match_expand_rows("omw", &rows),
+        Some(("omw".into(), "On my way!".into())));
+    // case-insensitive
+    assert_eq!(crate::expand::match_expand_rows("OMW", &rows).map(|(k, _)| k),
+        Some("omw".into()));
+    // word boundary: preceded by space is fine
+    assert!(crate::expand::match_expand_rows("talk omw", &rows).is_some());
+    // word boundary violated: embedded inside a longer word
+    assert!(crate::expand::match_expand_rows("romwx", &rows).is_none());
+    assert!(crate::expand::match_expand_rows("xomw", &rows).is_none());
+    // min length 2, no partial
+    assert!(crate::expand::match_expand_rows("th", &rows).is_none());
+    assert!(crate::expand::match_expand_rows("", &rows).is_none());
+    // buffer tail after more text: keyword must be exactly at tail
+    assert!(crate::expand::match_expand_rows("omw right now", &rows).is_none());
+}
+
+#[test]
+fn expand_keycodes() {
+    // verified against Carbon Events.h kVK_ANSI_*
+    assert_eq!(crate::expand::us_char(0, false), Some('a'));
+    assert_eq!(crate::expand::us_char(12, false), Some('q'));
+    assert_eq!(crate::expand::us_char(18, false), Some('1'));
+    assert_eq!(crate::expand::us_char(18, true), Some('!'));
+    assert_eq!(crate::expand::us_char(31, false), Some('o'));
+    assert_eq!(crate::expand::us_char(0x2F, false), Some('.'));
+    assert_eq!(crate::expand::us_char(99, false), None);
+}
+
+#[test]
+fn expand_watcher_buffer() {
+    let mut w = crate::expand::Watcher::new();
+    w.simulate = true;
+    w.rows = vec![("omw".into(), "On my way!".into())];
+    // type o m w: kVK_ANSI_O=31, M=46, W=13 (Carbon Events.h)
+    w.on_key(31, false);
+    w.on_key(46, false);
+    w.on_key(13, false);
+    // hitting Space (49) fires expansion: erase kw typed + paste. In test env
+    // the synthetic events post into an inert source; the decision itself is
+    // what we assert — returns Some(omw).
+    let fired = w.on_key(49, false);
+    assert_eq!(fired.as_deref(), Some("omw"));
+    assert!(w.buffer.is_empty());
+    // no match: random typing
+    w.on_key(1, false);
+    assert_eq!(w.on_key(49, false), None);
+}
+
+#[test]
+fn contacts_fixture_and_parse() {
+    // parse three-list AppleScript output
+    let p = crate::contacts::parse_applescript_list(
+        "{Ada Lovelace, Ada Smith}, {+15550101, }, {ada@example.com, asmith@example.com}", 8);
+    assert_eq!(p[0].0, "Ada Lovelace");
+    assert_eq!(p[0].1, "+15550101");
+    assert_eq!(p[1].1, "");
+    assert_eq!(p[1].2, "asmith@example.com");
+    // single-list fallback
+    let q = crate::contacts::parse_applescript_list("{Alice, Bob}", 8);
+    assert_eq!(q.len(), 2);
+    assert_eq!(q[0].0, "Alice");
+    // fixture-backed candidate pipeline
+    let f = std::env::temp_dir().join("rf_contacts_test.json");
+    std::fs::write(&f, r#"[{"name":"Ada Lovelace","phone":"+15550101","email":""},{"name":"Ada Smith","phone":"","email":"a@b.c"}]"#).unwrap();
+    std::env::set_var("RALFRED_CONTACTS_JSON", &f);
+    let cands = crate::contacts::candidates("c ada");
+    assert_eq!(cands.len(), 2);
+    // phone-first action, email fallback
+    assert!(cands[0].action.as_deref().unwrap().contains("tel:+15550101"));
+    assert!(cands[1].action.as_deref().unwrap().contains("mailto:a@b.c"));
+    // keyword discipline
+    assert!(crate::contacts::candidates("contactz ada").is_empty());
+    assert!(crate::contacts::candidates("c").is_empty());
+    std::env::remove_var("RALFRED_CONTACTS_JSON");
+    std::fs::remove_file(&f).ok();
+}
+
+#[test]
+fn itunes_verbs_and_fixture() {
+    // pure verb mapping (evidence strings: play/pause/playpause/next...)
+    assert_eq!(crate::itunes::verb_command("play"), Some("play"));
+    assert_eq!(crate::itunes::verb_command("PLAYPAUSE"), Some("playpause"));
+    assert_eq!(crate::itunes::verb_command("prev"), Some("previous track"));
+    assert_eq!(crate::itunes::verb_command("dance"), None);
+    // fixture library search
+    let f = std::env::temp_dir().join("rf_music_test.json");
+    std::fs::write(&f, r#"[{"name":"Bohemian Rhapsody","artist":"Queen","album":"ANATO"},{"name":"Imagine","artist":"John Lennon","album":"Imagine"}]"#).unwrap();
+    std::env::set_var("RALFRED_MUSIC_JSON", &f);
+    let c = crate::itunes::candidates("music queen");
+    assert_eq!(c.len(), 1);
+    assert!(c[0].title.contains("Bohemian"));
+    assert!(c[0].action.as_deref().unwrap().starts_with("music:playbyname:"));
+    // verb candidate carries action tag
+    let v = crate::itunes::candidates("music pause");
+    assert_eq!(v[0].action.as_deref(), Some("music:pause"));
+    // keyword discipline: not for other keywords
+    assert!(crate::itunes::candidates("musicx queen").is_empty());
+    std::env::remove_var("RALFRED_MUSIC_JSON");
+    std::fs::remove_file(&f).ok();
+}

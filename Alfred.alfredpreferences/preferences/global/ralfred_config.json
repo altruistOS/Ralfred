@@ -1,0 +1,20 @@
+{
+  "default_scope": [
+    "/Applications",
+    "/System/Applications",
+    "/System/Library/PreferencePanes",
+    "~/Applications",
+    "~/Library/PreferencePanes"
+  ],
+  "max_results": 20,
+  "auto_expand_snippets": true,
+  "clipboard_max_items": 500,
+  "web_search": {
+    "yt": "https://www.youtube.com/results?search_query={query}",
+    "wiki": "https://en.wikipedia.org/wiki/{query}",
+    "g": "https://www.google.com/search?q={query}"
+  },
+  "currency": "USD",
+  "default_browser": "",
+  "theme": "alfred-dark"
+}

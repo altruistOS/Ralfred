@@ -1,0 +1,23 @@
+[package]
+name = "ralfred"
+version = "0.1.0"
+edition = "2021"
+description = "An Alfred-style macOS launcher, clean-room from Alfred 5 reverse engineering"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+plist = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+ratatui = "0.29"
+crossterm = "0.28"
+dirs = "6"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+walkdir = "2"
+global-hotkey = "0.8.0"
+crossbeam-channel = "0.5.17"
+tao = "0.37"
+wry = "0.57"
+core-graphics = "0.25"
+core-foundation = "0.10.1"

@@ -1,0 +1,286 @@
+//! Native GUI — tao window + wry webview (WKWebView).
+//! Model from Alfred: borderless rounded panel, always-on-top, hides on blur,
+//! global hotkey summons.
+//!
+//! All web<->rust traffic goes through the "ralfred" custom protocol (fetch
+//! endpoints): evaluate_script callbacks and custom-scheme navigation proved
+//! unreliable; the synchronous protocol handler is the documented wry path.
+
+use crate::db::Store;
+use crate::engine;
+use crate::search::Candidate;
+use std::borrow::Cow;
+use std::sync::{Arc, Mutex};
+use tao::event::{Event, WindowEvent};
+use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+use tao::window::WindowBuilder;
+use wry::http::{Response, StatusCode};
+use wry::WebViewBuilder;
+
+#[derive(Clone)]
+pub struct UserEvent(u32); // SHOW=1 HIDE=2
+
+pub const SHOW: u32 = 1;
+pub const HIDE: u32 = 2;
+
+static DOM_ROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static ST_PROBE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static EXEC_ACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static THEME_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[derive(Default)]
+struct Shared {
+    items: Mutex<Vec<Candidate>>,
+}
+
+pub fn run(hotkey: Option<&str>) -> Result<(), String> {
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let shared = Arc::new(Shared::default());
+
+    let mut builder = WindowBuilder::new()
+        .with_title("ralfred")
+        .with_transparent(true)
+        .with_decorations(false)
+        .with_always_on_top(true)
+        .with_visible(false)
+        .with_inner_size(tao::dpi::LogicalSize::new(680.0, 58.0));
+    if let Some(m) = event_loop.primary_monitor() {
+        let size = m.size().to_logical::<f64>(m.scale_factor());
+        builder = builder.with_position(tao::dpi::LogicalPosition::new(
+            (size.width - 680.0) / 2.0,
+            size.height * 0.22,
+        ));
+    }
+    let window = builder.build(&event_loop).map_err(|e| format!("window: {e}"))?;
+
+    // ---- custom protocol: html + api on one scheme ----
+    let sh = shared.clone();
+    let proxy_h: EventLoopProxy<UserEvent> = event_loop.create_proxy();
+    let webview = WebViewBuilder::new()
+        .with_custom_protocol("ralfred".to_string(), move |_id, req| {
+            let uri = req.uri();
+            let path = uri.path().to_string();
+            let query = uri.query().unwrap_or("").to_string();
+            if std::env::var("RALFRED_PROTO_DEBUG").is_ok() {
+                eprintln!("[proto] {path}?{query}");
+            }
+            let body: Cow<'static, [u8]> = match path.as_str() {
+                "/search" => {
+                    let q = url_decode(query.strip_prefix("q=").unwrap_or(&query));
+                    let store = Store::knowledge();
+                    let cfg = crate::config::Config::load();
+                    let cands = crate::router::route(&q, &cfg, &store);
+                    let json = engine::items_json(&cands);
+                    *sh.items.lock().unwrap() = cands;
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Cow::Owned(json.into_bytes()))
+                        .unwrap();
+                }
+                "/exec" => {
+                    let n: usize = query
+                        .strip_prefix("id=")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    let c = sh.items.lock().unwrap().get(n).cloned();
+                    match c {
+                        Some(c) => {
+                            let store = Store::knowledge();
+                            engine::act(&c, &store);
+                            EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let _ = proxy_h.send_event(UserEvent(HIDE));
+                        }
+                        None => {
+                            return Response::builder()
+                                .status(StatusCode::NOT_FOUND)
+                                .body(Cow::Owned(br#"{"ok":false}"#.to_vec()))
+                                .unwrap()
+                        }
+                    }
+                    Cow::Owned(br#"{"ok":true}"#.to_vec())
+                }
+                "/hide" => {
+                    let _ = proxy_h.send_event(UserEvent(HIDE));
+                    Cow::Owned(Vec::new())
+                }
+                "/probe" => {
+                    if let Some(r) = query.strip_prefix("rows=") {
+                        DOM_ROWS.store(r.parse().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let Some(b) = query.strip_prefix("bg=") {
+                        // end-to-end theme check: served HTML's RF_BG vs resolved theme
+                        let want = crate::theme::Theme::resolve(&crate::config::Config::load().theme)
+                            .background;
+                        THEME_OK.store(b.eq_ignore_ascii_case(&want), std::sync::atomic::Ordering::SeqCst);
+                    }
+                    ST_PROBE.store(1, std::sync::atomic::Ordering::SeqCst);
+                    Cow::Owned(Vec::new())
+                }
+                _ => {
+                    let th = crate::theme::Theme::resolve(&crate::config::Config::load().theme);
+                    Cow::Owned(th.apply_html(engine::HTML).into_bytes())
+                }
+            };
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/html")
+                .body(body)
+                .unwrap()
+        })
+        .with_url("ralfred://index.html")
+        .build(&window)
+        .map_err(|e| format!("webview: {e}"))?;
+
+    // global hotkey -> UserEvent(SHOW)
+    if let Some(combo) = hotkey {
+        let hk = crate::hotkey::parse_combo(combo)?;
+        let mgr = global_hotkey::GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
+        mgr.register(hk)
+            .map_err(|e| format!("register: {e}"))?;
+        let ev = global_hotkey::GlobalHotKeyEvent::receiver();
+        let proxy: EventLoopProxy<UserEvent> = event_loop.create_proxy();
+        std::thread::spawn(move || loop {
+            match ev.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(e) if e.id() == hk.id => {
+                    let _ = proxy.send_event(UserEvent(SHOW));
+                }
+                Ok(_) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(_) => break,
+            }
+        });
+    }
+
+    let mut shown = hotkey.is_none(); // dev mode: no hotkey -> start visible
+    if shown {
+        window.set_visible(true);
+        window.set_focus();
+    }
+
+    // ---- selftest ----
+    let selftest = std::env::var("RALFRED_SELFTEST").is_ok();
+    let st_q = std::env::var("RALFRED_SELFTEST_Q").unwrap_or_else(|_| "2+2".into());
+    let mut st_phase = 0u8;
+    let mut st_t: Option<std::time::Instant> = None;
+    let mut st_first_routed: Option<std::time::Instant> = None;
+    let _ = &st_first_routed;
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = if selftest {
+            ControlFlow::Poll
+        } else {
+            ControlFlow::Wait
+        };
+        match event {
+            Event::UserEvent(UserEvent(k)) if k == SHOW => {
+                window.set_visible(true);
+                window.set_focus();
+                shown = true;
+                let _ = webview.evaluate_script("rfReset && rfReset();");
+            }
+            Event::UserEvent(UserEvent(_)) => {
+                window.set_visible(false);
+                shown = false;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Focused(false),
+                window_id: id,
+                ..
+            } if window.id() == id && shown => {
+                window.set_visible(false);
+                shown = false;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            _ => {}
+        }
+        if selftest {
+            let now = std::time::Instant::now();
+            match st_phase {
+                0 => {
+                    let _t = (st_q.clone(), now);
+                    let js = format!("rfSearch && rfSearch({:?});", st_q);
+                    let _ = webview.evaluate_script(&js);
+                    st_t = Some(now);
+                    st_phase = 1;
+                }
+                1 => {
+                    let n = shared.items.lock().unwrap().len();
+                    if n > 0 && st_first_routed.is_none() {
+                        st_first_routed = Some(now);
+                        println!("SELFTEST routed {n} candidates");
+                    }
+                    if n == 0 {
+                        let js = format!("rfSearch && rfSearch({:?});", st_q);
+                        let _ = webview.evaluate_script(&js);
+                        if st_t.map(|t| t.elapsed().as_secs() > 8).unwrap_or(false) {
+                            println!("SELFTEST FAIL: search never routed");
+                            *control_flow = ControlFlow::Exit;
+                        }
+                    } else if st_first_routed.is_some() {
+                        // routed -> fire probe; watch DOM_ROWS (set by handler on probe arrival)
+                        let _ = webview.evaluate_script(
+                            "rfProbe && rfProbe(document.querySelectorAll('.i').length);");
+                        if DOM_ROWS.swap(0, std::sync::atomic::Ordering::SeqCst) > 0 {
+                            println!("SELFTEST dom_rows drawn");
+                            // theme probe: JS compares served RF_BG to Rust-resolved theme
+                            let _ = webview.evaluate_script("rfTheme && rfTheme();");
+                            st_phase = 2;
+                            st_t = Some(now);
+                        } else if st_first_routed.map(|t| t.elapsed().as_secs() > 6).unwrap_or(false) {
+                            println!("SELFTEST FAIL: dom never drew rows");
+                            *control_flow = ControlFlow::Exit;
+                        }
+                    }
+                }
+                2 => {
+                    if THEME_OK.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        println!("SELFTEST theme ok");
+                        st_phase = 3;
+                        st_t = Some(now);
+                    } else if st_t.map(|t| t.elapsed().as_secs() > 4).unwrap_or(false) {
+                        println!("SELFTEST FAIL: theme probe never matched");
+                        *control_flow = ControlFlow::Exit;
+                    }
+                }
+                3 => {
+                    if EXEC_ACK.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        println!("SELFTEST exec ok");
+                        st_phase = 4; // Exit takes effect next poll; stop re-counting
+                        *control_flow = ControlFlow::Exit;
+                    } else {
+                        let _ = webview.evaluate_script("rfExec && rfExec(0);");
+                        if st_t.map(|t| t.elapsed().as_secs() > 6).unwrap_or(false) {
+                            println!("SELFTEST FAIL: exec timeout");
+                            *control_flow = ControlFlow::Exit;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(0));
+            i += 3;
+        } else if bytes[i] == b'+' {
+            out.push(b' ');
+            i += 1;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
