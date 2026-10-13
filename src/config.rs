@@ -44,6 +44,8 @@ pub struct Config {
     pub default_browser: String,
     /// Theme (reserved for later; colors kept out of clean-room).
     pub theme: String,
+    /// Global hotkey to summon the panel (Alfred's equivalent is a user choice).
+    pub hotkey: String,
 }
 
 impl Default for Config {
@@ -71,6 +73,7 @@ impl Default for Config {
             currency: "USD".into(),
             default_browser: String::new(),
             theme: "alfred-dark".into(),
+            hotkey: "ALT+CTRL+SPACE".into(),
         }
     }
 }

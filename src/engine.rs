@@ -150,7 +150,18 @@ padding:16px 20px;font-size:24px;border-radius:16px}
 .s{font-size:11px;color:#{{SUBTEXT}};margin-left:10px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ic{width:24px;height:24px;margin-right:10px;flex:0 0 24px}
 #lt{display:none;position:fixed;inset:0;background:#{{BG}};color:#{{TEXT}};z-index:99;align-items:center;justify-content:center;text-align:center;padding:6vw;font-weight:600;word-break:break-all;user-select:all}
-</style><div id="lt"></div><input id=q placeholder="Search ralfred…" autofocus><div id=r style="display:none"></div>
+#set{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:98;align-items:flex-start;justify-content:center;padding-top:12vh}
+#setw{width:600px;max-height:70vh;background:#{{BG}};border-radius:12px;color:#{{TEXT}};overflow:hidden;display:flex}
+#setnav{width:150px;border-right:1px solid #{{SELBG}};flex:0 0 150px}
+#setnav div{padding:9px 14px;font-size:12px;cursor:pointer}
+#setnav div.on{background:#{{SELBG}}}
+#setbody{flex:1;padding:14px 18px;overflow-y:auto}
+.frow{display:flex;justify-content:space-between;align-items:center;margin:10px 0;font-size:13px}
+.frow label{flex:1}
+.frow input[type=text],.frow select{width:220px;background:#{{SELBG}};border:1px solid #{{SELBG}};color:#{{TEXT}};border-radius:6px;padding:5px 8px;font-size:12px}
+.frow textarea{width:220px;height:56px;background:#{{SELBG}};border:1px solid #{{SELBG}};color:#{{TEXT}};border-radius:6px;padding:5px 8px;font-size:11px;font-family:ui-monospace,monospace}
+.frow .hint{display:block;font-size:10px;color:#{{SUBTEXT}};margin-top:2px}
+</style><div id="set"><div id="setw"><div id="setnav"></div><div id="setbody"></div></div></div><div id="lt"></div><input id=q placeholder="Search ralfred…" autofocus><div id=r style="display:none"></div>
 <script>
 let sel=0, items=[];
 const q=document.getElementById('q'), r=document.getElementById('r');
@@ -168,8 +179,9 @@ q.addEventListener('keydown',e=>{
   if(e.key==='Enter'){e.preventDefault();go(sel)}
   else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(sel+1,items.length-1);mark()}
   else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(sel-1,0);mark()}
-  else if(e.key==='Escape'){if(document.getElementById('lt').style.display==='flex'){rfLargeTypeOff()}else{fetch('ralfred://api/hide')}}
+  else if(e.key==='Escape'){if(document.getElementById('lt').style.display==='flex'){rfLargeTypeOff()}else if(document.getElementById('set').style.display==='flex'){rfSettings()}else{fetch('ralfred://api/hide')}}
   else if(e.metaKey&&e.key.toLowerCase()==='y'){e.preventDefault();if(items.length)fetch('ralfred://api/ql?id='+sel)}
+  else if(e.metaKey&&e.key===','){e.preventDefault();rfSettings()};
 });
 q.addEventListener('input',()=>rfSearch(q.value));
 window.rfSearch=rfSearch;
@@ -180,6 +192,30 @@ window.rfExec=n=>{fetch('ralfred://api/exec?id='+n)};
 window.rfReset=()=>{q.value='';q.focus();draw([])};
 window.rfLargeType=(t,n)=>{const e=document.getElementById('lt');e.textContent=t;e.style.display='flex';e.style.fontSize=n+'px';};
 window.rfLargeTypeOff=()=>{const e=document.getElementById('lt');e.style.display='none';};
+let setDoc=null,setDirty=false;
+window.rfSettings=async function(){const o=document.getElementById('set');
+  if(o.style.display==='flex'){if(setDirty)rfSetSave();o.style.display='none';return}
+  if(!setDoc){const r=await fetch('ralfred://api/settings');setDoc=await r.json();rfSetRender(0)}
+  o.style.display='flex';q.blur();};
+function rfSetRender(sec){const nav=document.getElementById('setnav'),bd=document.getElementById('setbody');
+  nav.innerHTML=setDoc.schema.sections.map((x,i)=>'<div class="'+(i===sec?'on':'')+'" onclick="rfSetRender('+i+')">'+x.title+'</div>').join('');
+  const fs=setDoc.schema.sections[sec].fields;
+  bd.innerHTML=fs.map(f=>{
+   const v=setDoc.values[f.key];
+   let ctl='';
+   if(f.type==='bool')ctl='<input type=checkbox '+(v?'checked':'')+' onchange="rfSetEdit(\''+f.key+'\',this.checked)">';
+   else if(f.type==='select')ctl='<select onchange="rfSetEdit(\''+f.key+'\',this.value)">'+f.options.map(o=>'<option '+(o===v?'selected':'')+'>'+o+'</option>').join('')+'</select>';
+   else if(f.type==='int')ctl='<input type=text value="'+v+'" onchange="rfSetEdit(\''+f.key+'\',parseInt(this.value))">';
+   else if(f.type==='list')ctl='<textarea onchange="rfSetEdit(\''+f.key+'\',this.value.split(String.fromCharCode(10)).filter(s=>s.trim()))">'+String(v)+'</textarea>';
+   else if(f.type==='map')ctl='<textarea onchange="rfSetEdit(\''+f.key+'\',rfParseMap(this.value))">'+Object.entries(v||{}).map(([k,u])=>k+' = '+u).join(String.fromCharCode(10))+'</textarea>';
+   else ctl='<input type=text value="'+v+'" onchange="rfSetEdit(\''+f.key+'\',this.value)">';
+   return '<div class=frow><label>'+f.label+(f.hint?'<span class=hint>'+f.hint+'</span>':'')+'</label>'+ctl+'</div>';
+  }).join('');}
+window.rfParseMap=t=>{const o={};t.split(String.fromCharCode(10)).forEach(l=>{const i=l.indexOf('=');if(i>0)o[l.slice(0,i).trim()]=l.slice(i+1).trim()});return o};
+window.rfSetEdit=(k,v)=>{setDoc.values[k]=v;setDirty=true;rfSetSave();};
+async function rfSetSave(){const r=await fetch('ralfred://api/settings',{method:'PATCH',body:JSON.stringify(setDoc.values)});
+  if(!r.ok){const j=await r.json().catch(()=>({error:'bad'}));alert('settings: '+(j.error||'save failed'))}
+  else{setDirty=false;}}
 </script>"#;
 
 fn p_esc(s: &str) -> String {

@@ -16,6 +16,7 @@ use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
 use wry::http::{Response, StatusCode};
 use wry::WebViewBuilder;
+use serde_json::Value;
 
 #[derive(Clone)]
 pub struct UserEvent(u32); // SHOW=1 HIDE=2 LT=3
@@ -23,6 +24,7 @@ pub struct UserEvent(u32); // SHOW=1 HIDE=2 LT=3
 pub const SHOW: u32 = 1;
 pub const HIDE: u32 = 2;
 pub const LT: u32 = 3;
+pub const RESYNC: u32 = 4;
 
 static DOM_ROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static ST_PROBE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -147,6 +149,28 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                             .unwrap(),
                     }
                 }
+                "/settings" => {
+                    if req.method() == wry::http::Method::PATCH {
+                        let body: Value = serde_json::from_slice(req.body()).unwrap_or(Value::Null);
+                        match crate::settings::patch(&body) {
+                            Ok(()) => Cow::Owned(br#"{"ok":true}"#.to_vec()),
+                            Err(e) => return Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .header("content-type", "application/json")
+                                .body(Cow::Owned(format!("{{\"ok\":false,\"error\":\"{e}\"}}").into_bytes()))
+                                .unwrap(),
+                        }
+                    } else {
+                        let doc = serde_json::json!({"schema": crate::settings::schema(), "values": crate::settings::get()});
+                        return Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "application/json")
+                            .header("access-control-allow-origin", "*")
+                            .header("access-control-allow-methods", "GET, PATCH, OPTIONS")
+                            .body(Cow::Owned(doc.to_string().into_bytes()))
+                            .unwrap();
+                    }
+                }
                 "/hide" => {
                     let _ = proxy_h.send_event(UserEvent(HIDE));
                     Cow::Owned(Vec::new())
@@ -184,19 +208,41 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         let hk = crate::hotkey::parse_combo(combo)?;
         let mgr = global_hotkey::GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
         mgr.register(hk)
-            .map_err(|e| format!("register: {e}"))?;
+            .map_err(|e| format!("register: {e} (accessibility / already taken?)"))?;
         let ev = global_hotkey::GlobalHotKeyEvent::receiver();
         let proxy: EventLoopProxy<UserEvent> = event_loop.create_proxy();
-        std::thread::spawn(move || loop {
-            match ev.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(e) if e.id() == hk.id => {
-                    let _ = proxy.send_event(UserEvent(SHOW));
+        // watch for user-changed hotkey (settings patch) and re-register live
+        let mut cur = combo.to_string();
+        let cur_id = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(hk.id));
+        let id_r = cur_id.clone();
+        let proxy_r = proxy.clone();
+        std::thread::spawn(move || {
+            let mut last_check = std::time::Instant::now();
+            loop {
+                match ev.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(e) if e.id() == id_r.load(std::sync::atomic::Ordering::Relaxed) => {
+                        let _ = proxy_r.send_event(UserEvent(SHOW));
+                    }
+                    Ok(_) => {}
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                    Err(_) => break,
                 }
-                Ok(_) => {}
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                Err(_) => break,
+                if last_check.elapsed().as_secs_f64() < 1.0 {
+                    continue;
+                }
+                last_check = std::time::Instant::now();
+                let want = crate::config::Config::load().hotkey;
+                if want != cur {
+                    if let Ok(nhk) = crate::hotkey::parse_combo(&want) {
+                        if mgr.unregister(hk).is_ok() && mgr.register(nhk).is_ok() {
+                            cur = want;
+                            id_r.store(nhk.id, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
             }
         });
+        let _ = proxy;
     }
 
     let mut shown = hotkey.is_none(); // dev mode: no hotkey -> start visible

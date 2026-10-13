@@ -145,6 +145,11 @@ chk "lt-alt-keyword" "Large Type" "$($R 'largetype hi')"
 chk "lt-bare-hint" "large type" "$($R lt)"
 chk "lt-keyword-boundary" "0" "$($R 'ltx y' | grep -c LargeType || echo 0)"
 
+echo "== 2a2i. settings =="
+H2="$(mktemp -d)"; trap 'rm -rf "$H2"' EXIT
+chk "settings-hotkey-default" "ALT+CTRL+SPACE" "$(RALFRED_HOME=$H2 $R config)"
+chk "settings-theme-persist" "midnight" "$(RALFRED_HOME=$H2 $R theme set midnight >/dev/null 2>&1; grep -o midnight $H2/Alfred.alfredpreferences/preferences/global/ralfred_config.json | head -1)"
+
 echo "== 2a3. themes =="
 chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
 chk "theme-list-light" "Alfred Light" "$($R theme list)"

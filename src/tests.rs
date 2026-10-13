@@ -307,3 +307,31 @@ fn hotkey_combo_robust_parsing() {
     assert!(crate::hotkey::parse_combo("JUSTKEY").is_err());
     assert!(crate::hotkey::parse_combo("ALT+BADKEY123X").is_err());
 }
+
+#[test]
+fn settings_get_patch_roundtrip() {
+    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let home = std::env::temp_dir().join(format!("rf_set_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    crate::install::use_sandbox(&home);
+    std::env::set_var("RALFRED_HOME", &home);
+    std::env::set_var("RALFRED_INSTALL_NOLAUNCHD", "1");
+    // get exposes the documented fields + schema sections
+    let v = crate::settings::get();
+    assert_eq!(v["hotkey"], "ALT+CTRL+SPACE");
+    let s = crate::settings::schema();
+    assert!(s["sections"].as_array().unwrap().len() >= 4);
+    // patch: valid + invalid
+    assert!(crate::settings::patch(&serde_json::json!({"hotkey": "CMD+ALT+K"})).is_ok());
+    assert_eq!(crate::settings::get()["hotkey"], "CMD+ALT+K");
+    assert!(crate::settings::patch(&serde_json::json!({"hotkey": "BAD+"})).is_err());
+    assert!(crate::settings::patch(&serde_json::json!({"theme": "neon"})).is_err());
+    assert!(crate::settings::patch(&serde_json::json!({"max_results": 1000})).is_err());
+    assert!(crate::settings::patch(&serde_json::json!({"auto_expand_snippets": false})).is_ok());
+    assert_eq!(crate::settings::get()["auto_expand_snippets"], false);
+    // persistence: Config::load sees the change
+    assert_eq!(crate::config::Config::load().hotkey, "CMD+ALT+K");
+    std::env::remove_var("RALFRED_HOME");
+    std::env::remove_var("RALFRED_INSTALL_NOLAUNCHD");
+    let _ = std::fs::remove_dir_all(&home);
+}

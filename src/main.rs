@@ -43,7 +43,8 @@ fn main() {
                 .map(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
                 .unwrap_or(false)
             {
-                match ralfred::gui::run(Some("ALT+CTRL+SPACE")) {
+                let hk = ralfred::config::Config::load().hotkey;
+                match ralfred::gui::run(Some(&hk)) {
                     Ok(()) => {}
                     Err(e) => eprintln!("gui error: {e}"),
                 }
@@ -56,8 +57,22 @@ fn main() {
         Some("workflows") => cli_workflows(),
         Some("daemon") => cli_daemon(),
         Some("gui") => {
-            let hk = args.get(1).map(|s| s.as_str());
-            match ralfred::gui::run(hk) {
+            let hk_cli = args.get(1).cloned();
+            let hk = hk_cli.as_deref()
+                .or_else(|| {
+                    let c = ralfred::config::Config::load();
+                    if c.hotkey != "ALT+CTRL+SPACE" {
+                        // stored hotkey is explicit (non-default) -> honor it
+                        return None;
+                    }
+                    None
+                })
+                .map(|s| s.to_string());
+            let hk = hk.or_else(|| {
+                let c = ralfred::config::Config::load();
+                Some(c.hotkey.clone())
+            });
+            match ralfred::gui::run(hk.as_deref()) {
                 Ok(()) => {}
                 Err(e) => {
                     eprintln!("gui error: {e}");
@@ -449,6 +464,8 @@ fn cli_workflows() {
 
 fn cli_config() {
     let cfg = Config::load();
+    println!("hotkey:      {}", cfg.hotkey);
+    println!("theme:       {}", cfg.theme);
     println!("scope:       {:?}", cfg.default_scope);
     println!("max_results: {}", cfg.max_results);
     println!("web_search:  {:?}", cfg.web_search);
