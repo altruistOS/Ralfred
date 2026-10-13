@@ -163,7 +163,12 @@ chk "expand-list" "autoexpand: omw" "$($R expand list)"
 $R expand > "$H/expand.out" 2>&1 & EXP=$!
 sleep 2; kill "$EXP" 2>/dev/null; wait "$EXP" 2>/dev/null
 out="$(cat "$H/expand.out" 2>/dev/null)"
-if echo "$out" | grep -q "Accessibility\|cannot install event tap"; then echo "  PASS  expand-permission-msg"; PASS=$((PASS+1)); else echo "  FAIL  expand-permission-msg: $out"; FAIL=$((FAIL+1)); FAILED_LIST+=("expand-permission-msg"); fi
+# two valid environments: tap install failed (needs an actionable Accessibility
+# message) OR tap installed fine (granted: silent, no error is correct)
+if echo "$out" | grep -q "panic"; then echo "  FAIL  expand-permission-msg: panic: $out"; FAIL=$((FAIL+1)); FAILED_LIST+=("expand-permission-msg")
+elif echo "$out" | grep -qi "accessibility\|cannot install event tap\|event tap.*fail"; then echo "  PASS  expand-permission-msg"; PASS=$((PASS+1))
+elif [ -z "$out" ]; then echo "  PASS  expand-permission-msg (granted: silent run)"; PASS=$((PASS+1))
+else echo "  FAIL  expand-permission-msg: $out"; FAIL=$((FAIL+1)); FAILED_LIST+=("expand-permission-msg"); fi
 # unit-tested decision core exposed via list/simulate; tap itself can't run headless
 chk_absent "expand-no-spam" "^panic" "$out"
 
