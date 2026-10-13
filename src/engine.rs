@@ -188,8 +188,10 @@ function mark(){const c=[...r.children];c.forEach((c2,n)=>c2.className='i'+(n===
 function pick(n){if(n!==sel){sel=n;mark()}}
 function go(n){sel=n;fetch('ralfred://api/exec?id='+n)}
 window.addEventListener('error',e=>{document.title='JSERR:'+e.message;});
-function rfSearch(s){if(!s){draw([]);sizeSync();return}
-  fetch('ralfred://api/search?q='+encodeURIComponent(s)).then(x=>x.text()).then(t=>{if(window.RF_DIAG)fetch('ralfred://api/probe?js=TXT'+t.length);try{draw(JSON.parse(t))}catch(e){if(window.RF_DIAG)fetch('ralfred://api/probe?js=DERR'+encodeURIComponent(e.message))}}).catch(e=>{if(window.RF_DIAG)fetch('ralfred://api/probe?js=E'+encodeURIComponent(e.message))})}
+let qid=0;
+function rfSearch(s){if(!s){qid++;draw([]);sizeSync();return}
+  const id=++qid;
+  fetch('ralfred://api/search?q='+encodeURIComponent(s)).then(x=>x.text()).then(t=>{if(id!==qid)return;if(window.RF_DIAG)fetch('ralfred://api/probe?js=TXT'+t.length);try{draw(JSON.parse(t))}catch(e){if(window.RF_DIAG)fetch('ralfred://api/probe?js=DERR'+encodeURIComponent(e.message))}}).catch(e=>{if(window.RF_DIAG)fetch('ralfred://api/probe?js=E'+encodeURIComponent(e.message))})}
 q.addEventListener('keydown',e=>{
   if(e.key==='Enter'){e.preventDefault();go(sel)}
   else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(sel+1,items.length-1);mark()}
