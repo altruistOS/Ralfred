@@ -67,6 +67,22 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             let uri = req.uri();
             let path = uri.path().to_string();
             let query = uri.query().unwrap_or("").to_string();
+            let host = uri.host().unwrap_or("").to_string();
+            if host == "api" && crate::webassets::has_real_assets() {
+                if path == "/index.html" {
+                    let th = crate::theme::Theme::resolve(&crate::config::Config::load().theme);
+                    return Response::builder().status(StatusCode::OK)
+                        .header("content-type", "text/html")
+                        .header("access-control-allow-origin", "*")
+                        .body(Cow::Owned(crate::webassets::index_with_theme(&th).into_bytes())).unwrap();
+                }
+                if path == "/bundle.js" {
+                    return Response::builder().status(StatusCode::OK)
+                        .header("content-type", "application/javascript")
+                        .header("access-control-allow-origin", "*")
+                        .body(Cow::Borrowed(crate::webassets::BUNDLE)).unwrap();
+                }
+            }
             if std::env::var("RALFRED_PROTO_DEBUG").is_ok() {
                 eprintln!("[proto] {path}?{query}");
             }
@@ -216,7 +232,11 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 .body(body)
                 .unwrap()
         })
-        .with_url("ralfred://index.html")
+        .with_url(if crate::webassets::has_real_assets() {
+            "ralfred://api/index.html"
+        } else {
+            "ralfred://index.html"
+        })
         .build(&window)
         .map_err(|e| format!("webview: {e}"))?;
 
