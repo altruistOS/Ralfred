@@ -413,8 +413,12 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                         // fire the JS fetch path exactly once per query: duplicate
                         // in-flight fetches to the same URL get cancelled by WebKit,
                         // and a cancelled task's response is silently dropped.
-                        static EVALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                        if !EVALED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        static LAST_EVAL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+                        let fire_eval = {
+                            let mut g = LAST_EVAL.lock().unwrap();
+                            match *g { Some(t) if t.elapsed().as_millis() < 300 => false, _ => { *g = Some(now); true } }
+                        };
+                        if fire_eval {
                             let js = format!("window.RF_DIAG=1;rfSearch && rfSearch({:?});", st_q);
                             match webview.evaluate_script(&js) {
                                 Ok(v) => {
