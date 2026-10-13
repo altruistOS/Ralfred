@@ -131,6 +131,10 @@ fn act(r: &Candidate, store: &Store) {
             }
             return;
         }
+        if typ.starts_with("largetype") {
+            let _ = ralfred::largetype::run(a);
+            return;
+        }
         if typ.starts_with("onepassword") {
             let _ = ralfred::onepassword::run(a);
             return;

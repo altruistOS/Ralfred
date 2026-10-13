@@ -113,6 +113,9 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     // 4a1. 1password (evidence: Alfred1PasswordManager + onepassword:// URL schemes)
     results.extend(crate::onepassword::candidates(q));
 
+    // 4a14. large type (evidence: AlfredFeatureLargeType, AlfredLargeTypeView)
+    results.extend(crate::largetype::candidates(q));
+
     // 4a15. web bookmarks (evidence: AlfredFeatureWebBookmarks, Safari/Chrome adapters)
     results.extend(crate::webbookmarks::candidates(q));
 

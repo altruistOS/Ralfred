@@ -3,6 +3,7 @@ pub mod config;
 pub mod gui;
 pub mod contacts;
 pub mod engine;
+pub mod largetype;
 pub mod webbookmarks;
 pub mod install;
 pub mod icons;

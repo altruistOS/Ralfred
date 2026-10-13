@@ -273,3 +273,24 @@ fn webbookmarks_fixture() {
     std::env::remove_var("RALFRED_BM_JSON");
     std::fs::remove_file(&f).ok();
 }
+
+#[test]
+fn largetype_candidates_and_scale() {
+    // font scale auto-fit (Alfred behavior, our thresholds)
+    assert_eq!(crate::largetype::font_size("42"), 180);
+    assert_eq!(crate::largetype::font_size("ten charxs"), 110); // 10 chars
+    assert_eq!(crate::largetype::font_size("eleven chars!!"), 64); // 14
+    assert!(crate::largetype::font_size("x".repeat(25).as_str()) <= 40);
+    // routing candidate
+    let c = crate::largetype::candidates("lt hello");
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].action.as_deref(), Some("largetype:hello"));
+    assert!(crate::largetype::candidates("lt").len() == 1);
+    assert!(crate::largetype::candidates("largetype y").len() == 1);
+    assert!(crate::largetype::candidates("ltx y").is_empty());
+    assert!(crate::largetype::candidates("lt").len() == 1);
+    // "lt " (trailing space) -> still the hint card, never an empty-text overlay
+    let h = crate::largetype::candidates("lt ");
+    assert_eq!(h.len(), 1);
+    assert!(h[0].action.is_none());
+}

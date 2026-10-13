@@ -41,6 +41,10 @@ pub fn act(r: &Candidate, store: &Store) {
             }
             return;
         }
+        if typ.starts_with("largetype") {
+            let _ = crate::largetype::run(a);
+            return;
+        }
         if typ.starts_with("onepassword") {
             let _ = crate::onepassword::run(a);
             return;
@@ -145,7 +149,8 @@ padding:16px 20px;font-size:24px;border-radius:16px}
 .t{font-size:14px;color:#{{TEXT}};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .s{font-size:11px;color:#{{SUBTEXT}};margin-left:10px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ic{width:24px;height:24px;margin-right:10px;flex:0 0 24px}
-</style><input id=q placeholder="Search ralfred…" autofocus><div id=r style="display:none"></div>
+#lt{display:none;position:fixed;inset:0;background:#{{BG}};color:#{{TEXT}};z-index:99;align-items:center;justify-content:center;text-align:center;padding:6vw;font-weight:600;word-break:break-all;user-select:all}
+</style><div id="lt"></div><input id=q placeholder="Search ralfred…" autofocus><div id=r style="display:none"></div>
 <script>
 let sel=0, items=[];
 const q=document.getElementById('q'), r=document.getElementById('r');
@@ -163,7 +168,7 @@ q.addEventListener('keydown',e=>{
   if(e.key==='Enter'){e.preventDefault();go(sel)}
   else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(sel+1,items.length-1);mark()}
   else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(sel-1,0);mark()}
-  else if(e.key==='Escape'){fetch('ralfred://api/hide')}
+  else if(e.key==='Escape'){if(document.getElementById('lt').style.display==='flex'){rfLargeTypeOff()}else{fetch('ralfred://api/hide')}}
   else if(e.metaKey&&e.key.toLowerCase()==='y'){e.preventDefault();if(items.length)fetch('ralfred://api/ql?id='+sel)}
 });
 q.addEventListener('input',()=>rfSearch(q.value));
@@ -173,6 +178,8 @@ window.rfProbe=n=>{fetch('ralfred://api/probe?rows='+n)};
 window.rfTheme=()=>{fetch('ralfred://api/probe?bg='+RF_BG.replace('#',''))};
 window.rfExec=n=>{fetch('ralfred://api/exec?id='+n)};
 window.rfReset=()=>{q.value='';q.focus();draw([])};
+window.rfLargeType=(t,n)=>{const e=document.getElementById('lt');e.textContent=t;e.style.display='flex';e.style.fontSize=n+'px';};
+window.rfLargeTypeOff=()=>{const e=document.getElementById('lt');e.style.display='none';};
 </script>"#;
 
 fn p_esc(s: &str) -> String {

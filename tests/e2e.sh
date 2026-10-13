@@ -139,6 +139,12 @@ chk "bm-bare-hint" "Web Bookmarks" "$($R bm)"
 chk "bm-keyword-boundary" "0" "$($R 'bmzz rust' | grep -c Rust || echo 0)"
 export RALFRED_BM_JSON=""
 
+echo "== 2a2h. large type =="
+chk "lt-candidate-action" "largetype:hello world" "$($R 'lt hello world')"
+chk "lt-alt-keyword" "Large Type" "$($R 'largetype hi')"
+chk "lt-bare-hint" "large type" "$($R lt)"
+chk "lt-keyword-boundary" "0" "$($R 'ltx y' | grep -c LargeType || echo 0)"
+
 echo "== 2a3. themes =="
 chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
 chk "theme-list-light" "Alfred Light" "$($R theme list)"

@@ -18,10 +18,11 @@ use wry::http::{Response, StatusCode};
 use wry::WebViewBuilder;
 
 #[derive(Clone)]
-pub struct UserEvent(u32); // SHOW=1 HIDE=2
+pub struct UserEvent(u32); // SHOW=1 HIDE=2 LT=3
 
 pub const SHOW: u32 = 1;
 pub const HIDE: u32 = 2;
+pub const LT: u32 = 3;
 
 static DOM_ROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static ST_PROBE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -31,6 +32,7 @@ static THEME_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 #[derive(Default)]
 struct Shared {
     items: Mutex<Vec<Candidate>>,
+    lt: Mutex<Option<String>>,
 }
 
 pub fn run(hotkey: Option<&str>) -> Result<(), String> {
@@ -87,6 +89,17 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     let c = sh.items.lock().unwrap().get(n).cloned();
                     match c {
                         Some(c) => {
+                            // large type: full-screen overlay instead of hide/exec
+                            if let Some(tag) = &c.action {
+                                if let Some(text) = tag.strip_prefix("largetype:") {
+                                    *sh.lt.lock().unwrap() = Some(text.to_string());
+                                    let _ = proxy_h.send_event(UserEvent(LT));
+                                    EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    return Response::builder().status(StatusCode::OK)
+                                        .header("content-type","application/json")
+                                        .body(Cow::Owned(br#"{"ok":true,"largetype":true}"#.to_vec())).unwrap();
+                                }
+                            }
                             let store = Store::knowledge();
                             engine::act(&c, &store);
                             EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -192,6 +205,9 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         window.set_focus();
     }
 
+    // large-type handoff for the LT event consumer in the loop
+    let shared_lt = shared.clone();
+
     // ---- selftest ----
     let selftest = std::env::var("RALFRED_SELFTEST").is_ok();
     let st_q = std::env::var("RALFRED_SELFTEST_Q").unwrap_or_else(|_| "2+2".into());
@@ -213,7 +229,27 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 shown = true;
                 let _ = webview.evaluate_script("rfReset && rfReset();");
             }
+            Event::UserEvent(UserEvent(k)) if k == LT => {
+                let text = shared_lt.lt.lock().unwrap().take();
+                if let Some(t) = text {
+                    window.set_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
+                    window.set_visible(true);
+                    window.set_focus();
+                    let esc: String = t.chars().flat_map(|ch| match ch {
+                        '\\' => "\\\\".chars().collect::<Vec<_>>(),
+                        '\'' => vec!['\\', '\''],
+                        '\n' => vec!['\\', 'n'],
+                        '\r' => vec!['\\', 'r'],
+                        c => vec![c],
+                    }).collect();
+                    let sz = crate::largetype::font_size(&t);
+                    let _ = webview.evaluate_script(&format!("rfLargeType('{}',{});", esc, sz));
+                }
+            }
             Event::UserEvent(UserEvent(_)) => {
+                let _ = webview.evaluate_script("rfLargeTypeOff && rfLargeTypeOff();");
+                window.set_fullscreen(None);
+                window.set_inner_size(tao::dpi::LogicalSize::new(680.0, 58.0));
                 window.set_visible(false);
                 shown = false;
             }
