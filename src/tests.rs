@@ -213,3 +213,41 @@ fn icons_and_onepassword() {
     std::env::remove_var("RALFRED_OP_JSON");
     std::fs::remove_file(&f).ok();
 }
+
+static INSTALL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn install_lifecycle_sandboxed() {
+    // serialized: install state is process-global (sandbox root / env)
+    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let home = std::env::temp_dir().join(format!("rf_install_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    // pin via API, not env, so it can't race other tests reading RALFRED_HOME
+    crate::install::use_sandbox(&home);
+    std::env::set_var("RALFRED_INSTALL_NOLAUNCHD", "1");
+    assert_eq!(crate::install::status(), "not installed");
+    crate::install::install("ALT+CTRL+SPACE").unwrap();
+    let st = crate::install::status();
+    assert!(st.starts_with("installed (plist)"), "got {st}");
+    let plist = home.join("LaunchAgents").join("com.kleo.ralfred.plist");
+    let xml = std::fs::read_to_string(&plist).unwrap();
+    assert!(xml.contains("com.kleo.ralfred"));
+    assert!(xml.contains("gui"));
+    assert!(xml.contains("ALT+CTRL+SPACE"));
+    assert!(xml.contains("<key>RunAtLoad</key>"));
+    // plist is valid enough for plutil to parse it
+    let ok = std::process::Command::new("/usr/bin/plutil")
+        .args(["-lint", &plist.to_string_lossy()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status().map(|s| s.success()).unwrap_or(false);
+    assert!(ok, "plist lint");
+    // idempotent uninstall + double-install overwrite
+    crate::install::install("CMD+ALT+K").unwrap();
+    assert!(std::fs::read_to_string(&plist).unwrap().contains("CMD+ALT+K"));
+    crate::install::uninstall().unwrap();
+    assert_eq!(crate::install::status(), "not installed");
+    crate::install::uninstall().unwrap(); // idempotent
+    std::env::remove_var("RALFRED_INSTALL_NOLAUNCHD");
+    let _ = std::fs::remove_dir_all(&home);
+}

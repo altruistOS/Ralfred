@@ -56,6 +56,7 @@ fn main() {
         Some("actions") => cli_actions(&args[1..]),
         Some("ql") => ralfred::quicklook::cli(&args[1..]),
         Some("icon") => ralfred::icons::cli(&args[1..]),
+        Some("install") => ralfred::install::cli(&args[1..]),
         Some("migrate") => cli_migrate(&args[1..]),
         Some("config") => cli_config(),
         Some("calc") => {

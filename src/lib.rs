@@ -3,6 +3,7 @@ pub mod config;
 pub mod gui;
 pub mod contacts;
 pub mod engine;
+pub mod install;
 pub mod icons;
 pub mod onepassword;
 pub mod quicklook;

@@ -115,6 +115,16 @@ chk "icon-raster-png" "PNG image data" "$($R icon /System/Applications/Utilities
 chk "icon-cache-hit" "same" "$(a=$($R icon /Applications/Safari.app 2>/dev/null || $R icon /System/Applications/Utilities/Terminal.app); b=$($R icon /Applications/Safari.app 2>/dev/null || $R icon /System/Applications/Utilities/Terminal.app); [ "$a" = "$b" ] && echo same)"
 chk "icon-missing-errors" "1" "$($R icon /nonexistent/zz 2>/dev/null; echo $?)"
 
+echo "== 2a2f. install/autostart (sandbox, no launchctl) =="
+export RALFRED_INSTALL_NOLAUNCHD=1
+chk "install-status-off" "not installed" "$($R install status)"
+chk "install-run" "login item com.kleo.ralfred" "$($R install --hotkey ALT+CTRL+SPACE)"
+chk "install-plist-lint" "OK" "$(plutil -lint "$H/LaunchAgents/com.kleo.ralfred.plist" 2>/dev/null | grep -o OK | head -1)"
+chk "install-status-on" "installed" "$($R install status)"
+chk "install-uninstall" "uninstalled" "$($R install uninstall)"
+chk "install-idempotent" "not installed" "$($R install uninstall; $R install status)"
+export RALFRED_INSTALL_NOLAUNCHD=""
+
 echo "== 2a3. themes =="
 chk "theme-list" "Alfred Dark (alfred-dark)" "$($R theme list)"
 chk "theme-list-light" "Alfred Light" "$($R theme list)"
