@@ -25,7 +25,9 @@ impl Store {
              CREATE INDEX IF NOT EXISTS knowledge_item ON knowledge(item);
              CREATE INDEX IF NOT EXISTS knowledge_keyword ON knowledge(keyword);
              CREATE INDEX IF NOT EXISTS knowledge_ts ON knowledge(ts);
-             CREATE TABLE IF NOT EXISTS latching(item TEXT, keyword TEXT, strong DECIMAL, ts DECIMAL);",
+             CREATE TABLE IF NOT EXISTS latching(item TEXT, keyword TEXT, strong DECIMAL, ts DECIMAL);
+             CREATE TABLE IF NOT EXISTS qhistory(q TEXT, ts DECIMAL);
+             CREATE INDEX IF NOT EXISTS qhistory_ts ON qhistory(ts);",
         ).unwrap();
         Self { conn: Mutex::new(conn) }
     }
@@ -196,6 +198,32 @@ impl Store {
         c.execute("INSERT INTO history(item,flatItem,ts) VALUES(?1,?2,?3)", params![url, url, now_ts()]).ok();
     }
 
+    /// Record a typed query (Alfred `↑` with empty query = last 20 typed).
+    /// Same query moves to the front; history capped at 50.
+    pub fn record_query(&self, q: &str) {
+        if q.trim().is_empty() {
+            return;
+        }
+        let c = self.conn.lock().unwrap();
+        c.execute("DELETE FROM qhistory WHERE q = ?1", params![q]).ok();
+        c.execute("INSERT INTO qhistory(q, ts) VALUES(?1, ?2)", params![q, now_ts()]).ok();
+        c.execute(
+            "DELETE FROM qhistory WHERE rowid NOT IN (SELECT rowid FROM qhistory ORDER BY ts DESC LIMIT 50)",
+            [],
+        ).ok();
+    }
+
+    /// Most recent typed queries, newest first.
+    pub fn recent_queries(&self, n: usize) -> Vec<String> {
+        let c = self.conn.lock().unwrap();
+        let mut st = c
+            .prepare("SELECT q FROM qhistory ORDER BY ts DESC LIMIT ?1")
+            .unwrap();
+        st.query_map(params![n as i64], |r| r.get(0))
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default()
+    }
+
     pub fn url_history(&self, q: &str, n: usize) -> Vec<(String, f64)> {
         let c = self.conn.lock().unwrap();
         let mut st = c.prepare("SELECT item, ts FROM history WHERE item LIKE ?1 ORDER BY ts DESC LIMIT ?2").unwrap();
@@ -252,4 +280,36 @@ pub fn filecache_upsert(path: &str, name_search: &str, filetype: i32) {
          ON CONFLICT(path) DO UPDATE SET lastUsed=excluded.lastUsed",
         params![path, name_search, now_ts() as i64, filetype],
     ).ok();
+}
+
+#[cfg(test)]
+mod qhistory_tests {
+    use super::*;
+
+    /// Serialize *any* test that pins the process-wide RALFRED_HOME. Lives in
+    /// db.rs (not tests.rs) so lib-crate tests, tests.rs, tests_wf/tests_mig
+    /// and tests_graph all share one global mutex.
+    pub(crate) fn env_home_lock() -> &'static std::sync::Mutex<()> {
+        static L: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        &L
+    }
+
+    #[test]
+    fn query_history_dedupes_and_orders() {
+        let _lock = crate::tests::INSTALL_TEST_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!("rf-qh-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::env::set_var("RALFRED_HOME", &home);
+        {
+            let s = Store::knowledge();
+            s.record_query("one");
+            s.record_query("two");
+            s.record_query("one"); // re-typed moves to front, no dup
+            s.record_query("   "); // ignored
+            let r = s.recent_queries(10);
+            assert_eq!(r, vec!["one".to_string(), "two".to_string()]);
+        }
+        std::env::remove_var("RALFRED_HOME");
+        std::fs::remove_dir_all(&home).ok();
+    }
 }

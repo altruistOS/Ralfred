@@ -51,6 +51,15 @@ export function Panel({ state, dispatch }: Props) {
 
   const qidRef = useRef(0)
   const lastQRef = useRef('')
+
+  // typed-query history (REA 2.11: Ctrl+Up/Down scrolls; Up with empty query)
+  const histRef = useRef<string[] | null>(null)
+  const histIdx = useRef(-1)
+  const histDraft = useRef('')
+  const resetHist = (): void => {
+    histIdx.current = -1
+    histDraft.current = ''
+  }
   const searchRef = useRef<(q: string) => void>(() => undefined)
 
   searchRef.current = (q: string): void => {
@@ -224,6 +233,13 @@ export function Panel({ state, dispatch }: Props) {
         if (!s.settingsOpen && s.items.length > 0) void bridge.ql(s.sel)
         return
       }
+      if (e.metaKey && (e.key === 'l' || e.key === 'L')) {
+        // REA 2.11: Cmd+L = Large Type on the selected result's text
+        e.preventDefault()
+        const it = s.items[s.sel]
+        if (it && !s.settingsOpen) dispatch({ type: 'LARGE', text: it.t })
+        return
+      }
       if (e.metaKey && /^[1-9]$/.test(e.key)) {
         e.preventDefault()
         const n = Number(e.key) - 1
@@ -231,6 +247,62 @@ export function Panel({ state, dispatch }: Props) {
         return
       }
       if (s.settingsOpen) return // overlay owns keys here
+
+      // REA 2.11: Up with an empty query starts history scroll (last typed)
+      if (e.key === 'ArrowUp' && !e.ctrlKey && !e.metaKey && !e.altKey && s.query === '' && s.items.length === 0) {
+        e.preventDefault()
+        void (async () => {
+          if (!histRef.current) histRef.current = await bridge.historyGet(50)
+          const h = histRef.current
+          if (h && h.length > 0) {
+            histDraft.current = ''
+            histIdx.current = 0
+            dispatch({ type: 'QUERY', query: h[0] })
+          }
+        })()
+        return
+      }
+
+      // Ctrl+Up / Ctrl+Down: scroll typed-query history (REA 2.11)
+      if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        void (async () => {
+          if (!histRef.current) histRef.current = await bridge.historyGet(50)
+          const h = histRef.current
+          if (!h || h.length === 0) return
+          if (e.key === 'ArrowUp') {
+            if (histIdx.current < 0) {
+              histDraft.current = s.query
+              histIdx.current = 0
+            } else {
+              histIdx.current = Math.min(histIdx.current + 1, h.length - 1)
+            }
+            dispatch({ type: 'QUERY', query: h[histIdx.current] })
+          } else if (histIdx.current >= 0) {
+            histIdx.current -= 1
+            dispatch({ type: 'QUERY', query: histIdx.current < 0 ? histDraft.current : h[histIdx.current] })
+          }
+        })()
+        return
+      }
+
+      if (e.altKey && e.key === 'ArrowRight') {
+        // REA 2.11: Option+Right also opens the universal-actions panel
+        if (s.items.length > 0 && !actBusyRef.current) {
+          e.preventDefault()
+          actBusyRef.current = true
+          void bridge.actionsFor(s.sel).then((list) => {
+            actBusyRef.current = false
+            if (list.length > 0) {
+              actsRef.current = list
+              setActs(list)
+              setActSel(0)
+            }
+          })
+        }
+        return
+      }
+
       if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && s.items.length > 0) {
         e.preventDefault()
         if (!actBusyRef.current) {
@@ -281,7 +353,10 @@ export function Panel({ state, dispatch }: Props) {
           aria-controls={items.length > 0 ? 'rf-list' : undefined}
           aria-autocomplete="list"
           value={query}
-          onChange={(e) => dispatch({ type: 'QUERY', query: e.target.value })}
+          onChange={(e) => {
+            resetHist()
+            dispatch({ type: 'QUERY', query: e.target.value })
+          }}
         />
       </div>
 

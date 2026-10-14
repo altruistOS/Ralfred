@@ -185,6 +185,8 @@ fn quicklook_url_and_toggle() {
 
 #[test]
 fn icons_and_onepassword() {
+    // icon cache lives under data_dir() — serialize with env-pinned tests
+    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
     // icons: icns discovery (dir bundle -> icns), rasterize + cache hit
     let app = std::path::PathBuf::from("/System/Applications/Utilities/Terminal.app");
     if app.exists() {

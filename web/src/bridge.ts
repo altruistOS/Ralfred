@@ -46,6 +46,21 @@ export function hide(): Promise<void> {
 
 // ---- universal actions (Alfred Tab menu) ----------------------------------
 
+// ---- typed-query history (Alfred: up-arrow with empty query) --------------
+
+export async function historyGet(n = 20): Promise<string[]> {
+  try {
+    const d = (await getJSON('/history?n=' + n)) as { queries?: string[] }
+    return d.queries ?? []
+  } catch {
+    return []
+  }
+}
+
+export function historyAdd(q: string): void {
+  if (q.trim()) void getQuiet('/history/add?q=' + encodeURIComponent(q))
+}
+
 export interface ActionInfo {
   id: string
   label: string

@@ -40,6 +40,9 @@ struct Shared {
     items: Mutex<Vec<Candidate>>,
     lt: Mutex<Option<String>>,
     resize_to: std::sync::atomic::AtomicU32,
+    /// last query typed in the panel — recorded to qhistory when the panel
+    /// commits (exec/hide), mirroring Alfred's `↑`-with-empty-query history.
+    last_q: Mutex<String>,
 }
 
 fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http::Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
@@ -78,6 +81,9 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
                     }
                     let json = engine::items_json(&cands);
                     *sh.items.lock().unwrap() = cands;
+                    if !q.trim().is_empty() {
+                        *sh.last_q.lock().unwrap() = q.clone();
+                    }
 
                     return Response::builder()
                         .status(StatusCode::OK)
@@ -105,6 +111,7 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
                                         .body(Cow::Owned(br#"{"ok":true,"largetype":true}"#.to_vec())).unwrap();
                                 }
                             }
+                            Store::knowledge().record_query(&sh.last_q.lock().unwrap().clone());
                             let store = Store::knowledge();
                             engine::act(&c, &store);
                             EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -117,6 +124,32 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
                                 .unwrap()
                         }
                     }
+                    Cow::Owned(br#"{"ok":true}"#.to_vec())
+                }
+                "/history" => {
+                    let n: usize = query
+                        .strip_prefix("n=")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(20);
+                    let v = Store::knowledge().recent_queries(n);
+                    let mut buf: Vec<u8> = Vec::new();
+                    buf.extend_from_slice(br#"{"queries":["#.as_slice());
+                    for (k, q) in v.iter().enumerate() {
+                        if k > 0 { buf.push(b','); }
+                        for &b in q.as_bytes() {
+                            match b {
+                                b'"' => { buf.push(b'\\'); buf.push(b'"'); },
+                                b'\\' => { buf.push(b'\\'); buf.push(b'\\'); },
+                                c => buf.push(c),
+                            }
+                        }
+                    }
+                    buf.extend_from_slice(br#"]}"#.as_slice());
+                    Cow::Owned(buf)
+                }
+                "/history/add" => {
+                    let q = url_decode(query.strip_prefix("q=").unwrap_or(&query));
+                    Store::knowledge().record_query(&q);
                     Cow::Owned(br#"{"ok":true}"#.to_vec())
                 }
                 "/actions" => {
@@ -223,6 +256,7 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
                     }
                 }
                 "/hide" => {
+                    Store::knowledge().record_query(&sh.last_q.lock().unwrap().clone());
                     let _ = proxy.send_event(UserEvent(HIDE));
                     Cow::Owned(Vec::new())
                 }
@@ -538,6 +572,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             w.set_focus();
         }
     }
+    let sh_ev = shared.clone();
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if selftest {
             ControlFlow::Poll
@@ -618,6 +653,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 window_id: id,
                 ..
             } if window.id() == id && shown => {
+                Store::knowledge().record_query(&sh_ev.last_q.lock().unwrap().clone());
                 window.set_visible(false);
                 shown = false;
             }
