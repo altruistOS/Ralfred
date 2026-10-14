@@ -44,6 +44,26 @@ export function hide(): Promise<void> {
   return getQuiet('/hide')
 }
 
+// ---- universal actions (Alfred Tab menu) ----------------------------------
+
+export interface ActionInfo {
+  id: string
+  label: string
+}
+
+export async function actionsFor(id: number): Promise<ActionInfo[]> {
+  try {
+    const d = (await getJSON('/actions?id=' + id)) as { actions?: ActionInfo[] }
+    return d.actions ?? []
+  } catch {
+    return []
+  }
+}
+
+export function runAction(id: number, aid: string): Promise<void> {
+  return getQuiet('/action?id=' + id + '&aid=' + encodeURIComponent(aid))
+}
+
 // ---- resize ---------------------------------------------------------------
 // One in-flight request, last-write-wins: an update arriving while another is
 // pending is coalesced and sent as soon as the in-flight one settles.

@@ -8,6 +8,8 @@ use crate::router::Action;
 /// description + implementation. Returns None for unknown identifiers.
 pub fn run_action(id: &str, target: &str) -> std::io::Result<()> {
     use std::process::Command;
+    // NOACT only suppresses *automatic* side effects (exec_action); actions
+    // here are explicitly user-invoked (CLI `ralfred actions` / Tab menu).
     let t = target;
     match id {
         "alfred.action.copy" => {
@@ -125,6 +127,74 @@ pub fn run_action(id: &str, target: &str) -> std::io::Result<()> {
     }
 }
 
+/// Human label for an action id (Alfred menu wording).
+pub fn label(id: &str) -> &'static str {
+    match id {
+        "alfred.action.open" => "Open",
+        "alfred.action.browsefolder" => "Browse Folder",
+        "alfred.action.revealinfinder" => "Show in Finder",
+        "alfred.action.openterminalhere" => "Open Terminal Here",
+        "alfred.action.copypath" => "Copy File Path",
+        "alfred.action.copy" => "Copy File to …",
+        "alfred.action.copyfile" => "Copy File",
+        "alfred.action.move" => "Move File to …",
+        "alfred.action.delete" => "Move to Trash",
+        "alfred.action.getinfo" => "Get Info",
+        "alfred.action.showpackagecontents" => "Show Package Contents",
+        "alfred.action.quicklook" => "Quick Look",
+        "alfred.action.copyfile" => "Copy File",
+        "alfred.action.mixed.email" => "Compose Email (Mixed)",
+        "alfred.action.openwith" => "Open With…",
+        "alfred.action.showaslargetype" => "Show As Large Type",
+        "alfred.action.url.open" => "Open URL",
+        "alfred.action.url.openin" => "Open URL In Default Browser",
+        "alfred.action.url.usedomainfromurl" => "Copy Domain",
+        "alfred.action.text.openindictionary" => "Dictionary Definition",
+        "alfred.action.text.copyasplaintext" => "Copy as Plain Text",
+        "alfred.action.text.pasteasplaintext" => "Paste as Plain Text",
+        "alfred.action.text.saveassnippet" => "Create Snippet…",
+        "alfred.action.text.useinalfred" => "Use As Alfred Query",
+        "alfred.action.text.searchwithfinder" => "Search with Finder",
+        _ => "Action",
+    }
+}
+
+/// Actions applicable to `target` — files/folders get the Finder set, http(s)
+/// URLs the URL set, anything else the text set. (REA: universal-actions table.)
+pub fn applicable(target: &str) -> Vec<(&'static str, &'static str)> {
+    let is_url = target.starts_with("http://") || target.starts_with("https://");
+    let is_path = !is_url && std::path::Path::new(target).exists();
+    let ids: &[&str] = if is_url {
+        &["alfred.action.url.open", "alfred.action.url.openin", "alfred.action.url.usedomainfromurl"]
+    } else if is_path {
+        const F: &[&str] = &[
+            "alfred.action.open",
+            "alfred.action.browsefolder",
+            "alfred.action.revealinfinder",
+            "alfred.action.openterminalhere",
+            "alfred.action.copypath",
+            "alfred.action.copy",
+            "alfred.action.move",
+            "alfred.action.delete",
+            "alfred.action.getinfo",
+            "alfred.action.showpackagecontents",
+            "alfred.action.quicklook",
+        ];
+        F
+    } else {
+        const T: &[&str] = &[
+            "alfred.action.text.copyasplaintext",
+            "alfred.action.text.pasteasplaintext",
+            "alfred.action.text.saveassnippet",
+            "alfred.action.text.useinalfred",
+            "alfred.action.text.openindictionary",
+            "alfred.action.text.searchwithfinder",
+        ];
+        T
+    };
+    ids.iter().map(|i| (*i, label(i))).collect()
+}
+
 /// Known action ids for discovery (`ralfred actions --list`).
 fn paste_via_cmdv() -> std::io::Result<()> {
     use core_graphics::event::{CGEvent, CGEventTapLocation, CGEventFlags};
@@ -187,4 +257,37 @@ fn next_available(src: &str) -> std::io::Result<std::path::PathBuf> {
         }
     }
     Ok(dst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn applicable_by_target_kind() {
+        // real directory -> Finder set (contains reveal + terminal)
+        let dir = std::env::temp_dir();
+        let p = dir.to_string_lossy().to_string();
+        let ids: Vec<_> = applicable(&p).into_iter().map(|(i, _)| i).collect();
+        assert!(ids.contains(&"alfred.action.revealinfinder"));
+        assert!(ids.contains(&"alfred.action.openterminalhere"));
+
+        let ids: Vec<_> = applicable("https://example.com/x")
+            .into_iter().map(|(i, _)| i).collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&"alfred.action.url.open"));
+
+        // plain text -> text set
+        let ids: Vec<_> = applicable("hello world")
+            .into_iter().map(|(i, _)| i).collect();
+        assert!(ids.contains(&"alfred.action.text.copyasplaintext"));
+        assert!(!ids.contains(&"alfred.action.delete"));
+    }
+
+    #[test]
+    fn labels_cover_all_known_ids() {
+        for id in known_actions() {
+            assert_ne!(label(id), "Action", "missing label for {id}");
+        }
+    }
 }

@@ -829,3 +829,21 @@ body {
   font-size: 11px;
   color: var(--rf-subtext);
 }
+
+/* Universal Actions menu (Alfred Tab) */
+.rf-actmenu {
+  padding: 4px 9px 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rf-actrow {
+  height: 30px;
+  line-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--rf-text);
+  cursor: default;
+}
+.rf-actrow.rf-actrow-sel {
+  background: var(--rf-selbg);
+}

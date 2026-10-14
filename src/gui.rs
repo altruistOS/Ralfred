@@ -119,6 +119,49 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
                     }
                     Cow::Owned(br#"{"ok":true}"#.to_vec())
                 }
+                "/actions" => {
+                    // Universal Actions menu for the selected result (Alfred Tab).
+                    let n: usize = query.strip_prefix("id=").and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+                    let c = sh.items.lock().unwrap().get(n).cloned();
+                    match c {
+                        Some(c) => {
+                            let target = match c.path.as_deref() {
+                                Some(p) if !p.is_empty() => p.to_string(),
+                                _ => c.title.clone(),
+                            };
+                            let acts = crate::universal::applicable(&target);
+                            let body = acts
+                                .iter()
+                                .map(|(id, l)| format!("{{\"id\":\"{id}\",\"label\":\"{l}\"}}"))
+                                .collect::<Vec<_>>()
+                                .join(",");
+                            Cow::Owned(format!("{{\"ok\":true,\"actions\":[{body}]}}").into_bytes())
+                        }
+                        None => Cow::Owned(br#"{"ok":false,"actions":[]}"#.to_vec()),
+                    }
+                }
+                "/action" => {
+                    // /action?id=N&aid=alfred.action.<id> — run action, then hide like exec.
+                    let (idpart, aid) = match query.split_once("&aid=") {
+                        Some((a, b)) => (a, b),
+                        None => (query.as_str(), ""),
+                    };
+                    let n: usize = idpart.strip_prefix("id=").and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+                    let c = sh.items.lock().unwrap().get(n).cloned();
+                    match c {
+                        Some(c) if !aid.is_empty() => {
+                            let target = match c.path.as_deref() {
+                                Some(p) if !p.is_empty() => p.to_string(),
+                                _ => c.title.clone(),
+                            };
+                            let _ = crate::universal::run_action(aid, &target);
+                            EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let _ = proxy.send_event(UserEvent(HIDE));
+                            Cow::Owned(br#"{"ok":true}"#.to_vec())
+                        }
+                        _ => Cow::Owned(br#"{"ok":false}"#.to_vec()),
+                    }
+                }
                 "/ql" => {
                     let n: usize = query
                         .strip_prefix("id=")

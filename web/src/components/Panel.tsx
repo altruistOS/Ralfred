@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Dispatch } from 'react'
 import { debounce } from '../state'
 import type { Action, AppState } from '../state'
 import * as bridge from '../bridge'
+import type { ActionInfo } from '../bridge'
 import { Results } from './Results'
 import { SettingsOverlay } from './SettingsOverlay'
 import { Toast } from './Toast'
@@ -26,6 +27,27 @@ export function Panel({ state, dispatch }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const stateRef = useRef(state)
   stateRef.current = state
+
+  // Universal Actions menu (Alfred: Tab shows actions of the selected result)
+  const [acts, setActs] = useState<ActionInfo[] | null>(null)
+  const [actSel, setActSel] = useState(0)
+  const actsRef = useRef<ActionInfo[] | null>(null)
+  const actSelRef = useRef(0)
+  const actBusyRef = useRef(false)
+  actsRef.current = acts
+  actSelRef.current = actSel
+  const closeActs = (): void => {
+    actsRef.current = null
+    actBusyRef.current = false
+    setActs(null)
+    setActSel(0)
+  }
+
+  // any result/selection change dismisses the menu, like Alfred
+  useEffect(() => {
+    closeActs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, sel])
 
   const qidRef = useRef(0)
   const lastQRef = useRef('')
@@ -155,6 +177,31 @@ export function Panel({ state, dispatch }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const s = stateRef.current
+      const menu = actsRef.current
+      if (menu && menu.length > 0) {
+        // while the actions menu is open it owns navigation keys
+        if (e.key === 'Escape') { e.preventDefault(); closeActs(); return }
+        if (e.key === 'Tab' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          const n = (actsRef.current ?? []).length
+          setActSel((i) => (i + 1) % n)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          const n = (actsRef.current ?? []).length
+          setActSel((i) => (i - 1 + n) % n)
+          return
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          const a = (actsRef.current ?? [])[actSelRef.current]
+          if (a) void bridge.runAction(s.sel, a.id)
+          closeActs()
+          return
+        }
+        return
+      }
       if (e.key === 'Escape') {
         e.preventDefault()
         if (s.largeType != null) dispatch({ type: 'LARGE', text: null })
@@ -183,6 +230,21 @@ export function Panel({ state, dispatch }: Props) {
         return
       }
       if (s.settingsOpen) return // overlay owns keys here
+      if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && s.items.length > 0) {
+        e.preventDefault()
+        if (!actBusyRef.current) {
+          actBusyRef.current = true
+          void bridge.actionsFor(s.sel).then((list) => {
+            actBusyRef.current = false
+            if (list.length > 0) {
+              actsRef.current = list
+              setActs(list)
+              setActSel(0)
+            }
+          })
+        }
+        return
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         dispatch({ type: 'MOVE', delta: 1 })
@@ -232,6 +294,25 @@ export function Panel({ state, dispatch }: Props) {
             void bridge.exec(i)
           }}
         />
+      )}
+
+      {acts && acts.length > 0 && (
+        <div className="rf-actmenu" role="menu" aria-label="Universal Actions">
+          {acts.map((a, i) => (
+            <div
+              key={a.id}
+              className={'rf-actrow' + (i === actSel ? ' rf-actrow-sel' : '')}
+              role="menuitem"
+              onMouseEnter={() => setActSel(i)}
+              onClick={() => {
+                void bridge.runAction(state.sel, a.id)
+                closeActs()
+              }}
+            >
+              {a.label}
+            </div>
+          ))}
+        </div>
       )}
 
       {settingsOpen && settingsDoc && (
