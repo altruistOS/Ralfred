@@ -7,6 +7,7 @@
     "build": "esbuild src/index.tsx --bundle --minify --jsx=automatic --loader:.css=text --outfile=dist/bundle.js",
     "dev": "esbuild src/index.tsx --bundle --minify --jsx=automatic --loader:.css=text --outfile=dist/bundle.js --watch",
     "check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "test": "node scripts/smoke.mjs"
   },

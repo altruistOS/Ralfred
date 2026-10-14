@@ -198,7 +198,7 @@ q.addEventListener('keydown',e=>{
   else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(sel-1,0);mark()}
   else if(e.key==='Escape'){if(document.getElementById('lt').style.display==='flex'){rfLargeTypeOff()}else if(document.getElementById('set').style.display==='flex'){rfSettings()}else{fetch('ralfred://api/hide')}}
   else if(e.metaKey&&e.key.toLowerCase()==='y'){e.preventDefault();if(items.length)fetch('ralfred://api/ql?id='+sel)}
-  else if(e.metaKey&&e.key===','){e.preventDefault();rfSettings()}
+  else if(e.metaKey&&e.key===','){e.preventDefault();rfPrefs()}
   else if(e.metaKey&&e.key>='1'&&e.key<='9'){e.preventDefault();if(items.length)go(parseInt(e.key)-1)}
 });
 q.addEventListener('input',()=>rfSearch(q.value));
@@ -206,6 +206,7 @@ window.rfSearch=rfSearch;window.rfApply=d=>draw(d);document.title='BOOT';
 const RF_BG='#{{BG}}';
 window.rfProbe=n=>{fetch('ralfred://api/probe?rows='+n)};
 window.rfTheme=()=>{fetch('ralfred://api/probe?bg='+RF_BG.replace('#',''))};
+window.rfPrefs=()=>{fetch('ralfred://api/prefs').then(r=>{if(!r.ok&&window.rfSettings)window.rfSettings()}).catch(()=>{if(window.rfSettings)window.rfSettings()})};
 window.rfExec=n=>{fetch('ralfred://api/exec?id='+n)};
 window.rfReset=()=>{q.value='';q.focus();draw([]);sizeSync()};
 window.rfLargeType=(t,n)=>{const e=document.getElementById('lt');e.textContent=t;e.style.display='flex';e.style.fontSize=n+'px';};

@@ -7,6 +7,8 @@ interface RFTheme {
   TEXT?: string
   SUBTEXT?: string
   SELBG?: string
+  /** optional accent color (hex) used by the preferences window */
+  ACCENT?: string
 }
 
 interface Window {

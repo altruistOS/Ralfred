@@ -335,3 +335,35 @@ fn settings_get_patch_roundtrip() {
     std::env::remove_var("RALFRED_INSTALL_NOLAUNCHD");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn features_enable_disable_gating() {
+    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let home = std::env::temp_dir().join(format!("rf_feat_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    // NB: no install::use_sandbox here — it pins a process-wide OnceCell and
+    // would steal the pin from the install/settings/migrate tests. RALFRED_HOME
+    // alone isolates features/config/router, which is all this test touches.
+    std::env::set_var("RALFRED_HOME", &home);
+
+    // list exposes the full feature-domain inventory, default all enabled
+    let doc = crate::features::list();
+    let arr = doc.as_array().unwrap();
+    assert!(arr.len() >= 13);
+    assert!(arr.iter().all(|f| f["enabled"].as_bool().unwrap_or(true)));
+    assert!(arr.iter().any(|f| f["id"] == "largetype"));
+
+    // patch disables, persists, and the router honors it
+    assert!(crate::features::patch("largetype", false).is_ok());
+    assert!(!crate::features::enabled("largetype"));
+    assert!(crate::features::enabled("contacts"));
+    let cands = crate::router::route("lt hello", &crate::config::Config::load(), &crate::db::Store::knowledge());
+    assert!(!cands.iter().any(|c| c.title.starts_with("Large Type")), "disabled feature leaked into results");
+    let _ = crate::features::patch("nope-not-real", true);
+    assert!(crate::features::patch("nope-not-real", true).is_err());
+
+    // re-enable restores routing
+    assert!(crate::features::patch("largetype", true).is_ok());
+    std::env::remove_var("RALFRED_HOME");
+    let _ = std::fs::remove_dir_all(&home);
+}

@@ -164,7 +164,11 @@ export function Panel({ state, dispatch }: Props) {
       }
       if (e.metaKey && e.key === ',') {
         e.preventDefault()
-        openSettingsRef.current()
+        // Alfred: Cmd+, opens the Preferences window; only when the host
+        // cannot open one (legacy assets) fall back to the in-panel overlay.
+        void bridge.prefs().then((ok) => {
+          if (!ok) openSettingsRef.current()
+        })
         return
       }
       if (e.metaKey && (e.key === 'y' || e.key === 'Y')) {

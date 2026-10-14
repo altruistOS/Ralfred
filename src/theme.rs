@@ -87,6 +87,23 @@ impl Theme {
     }
 
     /// Resolve uid -> theme: custom file first, then builtin.
+    /// Frosted-glass variant: lighten the alpha so macOS vibrancy (the
+    /// NSVisualEffectView behind the webview) shows through the panel chrome.
+    /// With translucency off the original near-opaque colors are returned.
+    pub fn applied(mut self, glass: bool) -> Theme {
+        if glass {
+            if !self.background.contains('+') {
+                let base = trim_alpha(&self.background);
+                self.background = format!("{}96", base); // ~59% over the blur
+            }
+            if !self.field.contains('+') {
+                let base = trim_alpha(&self.field);
+                self.field = format!("{}66", base); // field well: even more glass
+            }
+        }
+        self
+    }
+
     pub fn resolve(uid: &str) -> Theme {
         let p = Self::themes_dir().join(format!("{}.json", uid));
         if let Ok(s) = std::fs::read_to_string(&p) {
@@ -214,4 +231,9 @@ pub fn cli(args: &[String]) {
             std::process::exit(1);
         }
     }
+}
+
+fn trim_alpha(hex: &str) -> &str {
+    let h = hex.trim();
+    if h.len() == 8 { &h[..6] } else { h }
 }

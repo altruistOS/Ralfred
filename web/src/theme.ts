@@ -8,6 +8,7 @@ const DEFAULTS: Record<string, string> = {
   TEXT: 'f2f2f2',
   SUBTEXT: '8e8e93',
   SELBG: '3a3a3c',
+  ACCENT: '3297c1',
 }
 
 const VARS: Array<[string, keyof RFTheme]> = [
@@ -16,6 +17,7 @@ const VARS: Array<[string, keyof RFTheme]> = [
   ['--rf-text', 'TEXT'],
   ['--rf-subtext', 'SUBTEXT'],
   ['--rf-selbg', 'SELBG'],
+  ['--rf-accent', 'ACCENT'],
 ]
 
 function hexColor(raw: string | undefined, def: string): string {

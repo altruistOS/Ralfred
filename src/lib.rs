@@ -4,6 +4,7 @@ pub mod gui;
 pub mod contacts;
 pub mod engine;
 pub mod settings;
+pub mod features;
 pub mod webassets;
 pub mod largetype;
 pub mod webbookmarks;

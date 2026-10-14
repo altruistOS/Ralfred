@@ -26,6 +26,9 @@ pub const HIDE: u32 = 2;
 pub const LT: u32 = 3;
 pub const RESYNC: u32 = 4;
 pub const RESIZE: u32 = 5;
+pub const PREFS: u32 = 6;
+pub const VIB: u32 = 8;
+pub const PREFCLOSE: u32 = 7;
 
 static DOM_ROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static ST_PROBE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -39,38 +42,16 @@ struct Shared {
     resize_to: std::sync::atomic::AtomicU32,
 }
 
-pub fn run(hotkey: Option<&str>) -> Result<(), String> {
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    let shared = Arc::new(Shared::default());
-
-    let mut builder = WindowBuilder::new()
-        .with_title("ralfred")
-        .with_transparent(true)
-        .with_decorations(false)
-        .with_always_on_top(true)
-        .with_visible(false)
-        .with_inner_size(tao::dpi::LogicalSize::new(718.0, 71.0));
-    if let Some(m) = event_loop.primary_monitor() {
-        let size = m.size().to_logical::<f64>(m.scale_factor());
-        builder = builder.with_position(tao::dpi::LogicalPosition::new(
-            (size.width - 718.0) / 2.0,
-            size.height * 0.16,
-        ));
-    }
-    let window = builder.build(&event_loop).map_err(|e| format!("window: {e}"))?;
-
-    // ---- custom protocol: html + api on one scheme ----
-    let sh = shared.clone();
-    let proxy_h: EventLoopProxy<UserEvent> = event_loop.create_proxy();
-    let webview = WebViewBuilder::new()
-        .with_custom_protocol("ralfred".to_string(), move |_id, req| {
+fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http::Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
             let uri = req.uri();
             let path = uri.path().to_string();
             let query = uri.query().unwrap_or("").to_string();
             let host = uri.host().unwrap_or("").to_string();
             if host == "api" && crate::webassets::has_real_assets() {
                 if path == "/index.html" {
-                    let th = crate::theme::Theme::resolve(&crate::config::Config::load().theme);
+                    let cfg = crate::config::Config::load();
+                    let th = crate::theme::Theme::resolve(&cfg.theme)
+                        .applied(cfg.translucent && !req.uri().query().map_or(false, |q| q.contains("w=prefs")));
                     return Response::builder().status(StatusCode::OK)
                         .header("content-type", "text/html")
                         .header("access-control-allow-origin", "*")
@@ -117,7 +98,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                             if let Some(tag) = &c.action {
                                 if let Some(text) = tag.strip_prefix("largetype:") {
                                     *sh.lt.lock().unwrap() = Some(text.to_string());
-                                    let _ = proxy_h.send_event(UserEvent(LT));
+                                    let _ = proxy.send_event(UserEvent(LT));
                                     EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
                                     return Response::builder().status(StatusCode::OK)
                                         .header("content-type","application/json")
@@ -127,7 +108,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                             let store = Store::knowledge();
                             engine::act(&c, &store);
                             EXEC_ACK.store(true, std::sync::atomic::Ordering::SeqCst);
-                            let _ = proxy_h.send_event(UserEvent(HIDE));
+                            let _ = proxy.send_event(UserEvent(HIDE));
                         }
                         None => {
                             return Response::builder()
@@ -175,7 +156,12 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     if req.method() == wry::http::Method::PATCH {
                         let body: Value = serde_json::from_slice(req.body()).unwrap_or(Value::Null);
                         match crate::settings::patch(&body) {
-                            Ok(()) => Cow::Owned(br#"{"ok":true}"#.to_vec()),
+                            Ok(()) => {
+                                if body.get("translucent").is_some() {
+                                    let _ = proxy.send_event(UserEvent(VIB));
+                                }
+                                Cow::Owned(br#"{"ok":true}"#.to_vec())
+                            }
                             Err(e) => return Response::builder()
                                 .status(StatusCode::BAD_REQUEST)
                                 .header("content-type", "application/json")
@@ -194,13 +180,13 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     }
                 }
                 "/hide" => {
-                    let _ = proxy_h.send_event(UserEvent(HIDE));
+                    let _ = proxy.send_event(UserEvent(HIDE));
                     Cow::Owned(Vec::new())
                 }
                 "/resize" => {
                     if let Some(h) = query.strip_prefix("h=").and_then(|v| v.parse::<u32>().ok()) {
                         sh.resize_to.store(h, std::sync::atomic::Ordering::SeqCst);
-                        let _ = proxy_h.send_event(UserEvent(RESIZE));
+                        let _ = proxy.send_event(UserEvent(RESIZE));
                     }
                     Cow::Owned(Vec::new())
                 }
@@ -212,12 +198,72 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                         DOM_ROWS.store(r.parse().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
                     }
                     if let Some(b) = query.strip_prefix("bg=") {
-                        // end-to-end theme check: served HTML's RF_BG vs resolved theme
+                        // end-to-end theme check: served HTML's RF_BG vs resolved theme.
+                        // Compare the RGB base only — glass mode changes the alpha suffix.
                         let want = crate::theme::Theme::resolve(&crate::config::Config::load().theme)
                             .background;
-                        THEME_OK.store(b.eq_ignore_ascii_case(&want), std::sync::atomic::Ordering::SeqCst);
+                        let wb = want.to_ascii_lowercase();
+                        let bb = b.to_ascii_lowercase();
+                        let n = wb.len().min(bb.len()).min(6);
+                        THEME_OK.store(n >= 6 && wb[..n] == bb[..n], std::sync::atomic::Ordering::SeqCst);
                     }
                     ST_PROBE.store(1, std::sync::atomic::Ordering::SeqCst);
+                    Cow::Owned(Vec::new())
+                }
+                "/api/features" => {
+                    if req.method() == wry::http::Method::PATCH {
+                        let body: Value = serde_json::from_slice(req.body()).unwrap_or(Value::Null);
+                        let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let on = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                        return match crate::features::patch(id, on) {
+                            Ok(()) => Response::builder().status(StatusCode::OK)
+                                .header("access-control-allow-origin", "*")
+                                .body(Cow::Owned(br#"{"ok":true}"#.to_vec())).unwrap(),
+                            Err(e) => Response::builder().status(StatusCode::BAD_REQUEST)
+                                .header("content-type", "application/json")
+                                .header("access-control-allow-origin", "*")
+                                .body(Cow::Owned(format!("{{\"ok\":false,\"error\":\"{e}\"}}").into_bytes())).unwrap(),
+                        };
+                    }
+                    return Response::builder().status(StatusCode::OK)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Cow::Owned(crate::features::list().to_string().into_bytes())).unwrap();
+                }
+                "/api/workflows" => {
+                    let wfs = crate::workflow::load_workflows(&crate::config::workflows_dir());
+                    let doc: Vec<Value> = wfs.iter().map(|w| serde_json::json!({
+                        "uid": w.uid, "name": w.name, "keyword": w.keyword,
+                        "dir": w.dir.display().to_string(),
+                    })).collect();
+                    return Response::builder().status(StatusCode::OK)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Cow::Owned(Value::Array(doc).to_string().into_bytes())).unwrap();
+                }
+                "/api/themes" => {
+                    let strip = |c: &str| if c.len() == 8 { c[..6].to_string() } else { c.to_string() };
+                    let doc: Vec<Value> = crate::theme::Theme::all().iter().map(|t| serde_json::json!({
+                        "id": t.uid, "name": t.name,
+                        "colors": {"BG": strip(&t.background), "FIELD": strip(&t.field),
+                                   "TEXT": strip(&t.text), "SUBTEXT": strip(&t.subtext),
+                                   "SELBG": strip(&t.selection_background)},
+                    })).collect();
+                    return Response::builder().status(StatusCode::OK)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Cow::Owned(Value::Array(doc).to_string().into_bytes())).unwrap();
+                }
+                "/prefs" => {
+                    if !crate::webassets::has_real_assets() {
+                        return Response::builder().status(StatusCode::NOT_FOUND)
+                            .body(Cow::Owned(Vec::new())).unwrap();
+                    }
+                    let _ = proxy.send_event(UserEvent(PREFS));
+                    Cow::Owned(Vec::new())
+                }
+                "/prefsclose" => {
+                    let _ = proxy.send_event(UserEvent(PREFCLOSE));
                     Cow::Owned(Vec::new())
                 }
                 _ => {
@@ -231,7 +277,94 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 .header("access-control-allow-origin", "*")
                 .body(body)
                 .unwrap()
-        })
+
+}
+
+fn api_handler(sh: Arc<Shared>, proxy: EventLoopProxy<UserEvent>) -> impl Fn(wry::WebViewId<'_>, wry::http::Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> + Send + Sync + 'static {
+    move |_id: wry::WebViewId, req: wry::http::Request<Vec<u8>>| api_body(&sh, &proxy, &req)
+}
+
+/// macOS frosted-glass: insert (or remove) an NSVisualEffectView directly
+/// behind the webview inside the window's contentView. The panel window is
+/// already transparent; with the webview layer transparent too, the CSS
+/// alphas from Theme::applied() let the desktop blur show through — the
+/// effect Alfred calls translucency.
+#[cfg(target_os = "macos")]
+fn set_panel_vibrancy(win: &tao::window::Window, on: bool) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{
+        NSView, NSVisualEffectView, NSVisualEffectMaterial, NSVisualEffectBlendingMode,
+        NSVisualEffectState, NSAutoresizingMaskOptions, NSWindowOrderingMode, NSWindow,
+    };
+    use objc2::runtime::NSObjectProtocol;
+    if objc2::MainThreadMarker::new().is_none() {
+        return; // AppKit requires the main thread
+    }
+    unsafe {
+        use tao::platform::macos::WindowExtMacOS;
+        let nswin_ptr = win.ns_window() as *mut AnyObject;
+        if nswin_ptr.is_null() {
+            return;
+        }
+        let nswin: &NSWindow = &*(nswin_ptr as *const NSWindow);
+        let Some(cv) = nswin.contentView() else { return };
+        for v in cv.subviews().iter() {
+            if let Some(view) = v.downcast_ref::<NSView>() {
+                if view.isKindOfClass(<NSVisualEffectView as objc2::ClassType>::class()) {
+                    view.removeFromSuperview();
+                }
+            }
+        }
+        if on {
+            let mtm = objc2::MainThreadMarker::new_unchecked();
+            let alloc = mtm.alloc();
+            let vev = NSVisualEffectView::initWithFrame(alloc, cv.bounds());
+            vev.setMaterial(NSVisualEffectMaterial::HUDWindow);
+            vev.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+            vev.setState(NSVisualEffectState::Active);
+            vev.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+            );
+            cv.addSubview_positioned_relativeTo(&*vev, NSWindowOrderingMode::Below, None);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_panel_vibrancy(_win: &tao::window::Window, _on: bool) {}
+
+pub fn run(hotkey: Option<&str>) -> Result<(), String> {
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let shared = Arc::new(Shared::default());
+
+    // kill-switch for the frosted-glass layer (used to isolate crashes)
+    let glass = crate::config::Config::load().translucent
+        && std::env::var("RALFRED_NOGLASS").is_err();
+    eprintln!("[glass] config translucent={}", glass);
+    let mut builder = WindowBuilder::new()
+        .with_title("ralfred")
+        .with_transparent(true)
+
+        .with_decorations(false)
+        .with_always_on_top(true)
+        .with_visible(false)
+        .with_inner_size(tao::dpi::LogicalSize::new(718.0, 71.0));
+    if let Some(m) = event_loop.primary_monitor() {
+        let size = m.size().to_logical::<f64>(m.scale_factor());
+        builder = builder.with_position(tao::dpi::LogicalPosition::new(
+            (size.width - 718.0) / 2.0,
+            size.height * 0.16,
+        ));
+    }
+    let window = builder.build(&event_loop).map_err(|e| format!("window: {e}"))?;
+
+    // ---- custom protocol: html + api on one scheme ----
+    let sh = shared.clone();
+    let proxy_h: EventLoopProxy<UserEvent> = event_loop.create_proxy();
+    let webview = WebViewBuilder::new()
+
+        .with_custom_protocol("ralfred".to_string(), api_handler(sh.clone(), proxy_h.clone()))
         .with_url(if crate::webassets::has_real_assets() {
             "ralfred://api/index.html"
         } else {
@@ -239,6 +372,33 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         })
         .build(&window)
         .map_err(|e| format!("webview: {e}"))?;
+
+    // ---- preferences window (hidden until PREFS) ----
+    let mut prefs_wv: Option<wry::WebView> = None;
+    let mut prefs_win: Option<tao::window::Window> = None;
+    let mut pwb = WindowBuilder::new()
+        .with_title("Ralfred Preferences")
+        .with_inner_size(tao::dpi::LogicalSize::new(1180.0, 700.0))
+        .with_min_inner_size(tao::dpi::LogicalSize::new(980.0, 620.0))
+        .with_visible(false);
+    if let Some(m) = event_loop.primary_monitor() {
+        let size = m.size().to_logical::<f64>(m.scale_factor());
+        pwb = pwb.with_position(tao::dpi::LogicalPosition::new(
+            ((size.width - 1180.0) / 2.0).max(0.0),
+            ((size.height - 700.0) / 3.0).max(0.0),
+        ));
+    }
+    let prefs_window = pwb.build(&event_loop).map_err(|e| format!("prefs window: {e}"))?;
+    prefs_wv = Some(WebViewBuilder::new()
+        .with_url("ralfred://api/index.html?w=prefs#prefs")
+        .with_custom_protocol("ralfred".to_string(), api_handler(shared.clone(), event_loop.create_proxy()))
+        .build(&prefs_window)
+        .map_err(|e| format!("prefs webview: {e}"))?);
+    prefs_win = Some(prefs_window);
+
+    if glass {
+        set_panel_vibrancy(&window, true);
+    }
 
     // ---- single-instance: if another copy holds our socket, summon it ----
     {
@@ -322,6 +482,19 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
     let mut st_first_routed: Option<std::time::Instant> = None;
     let _ = &st_first_routed;
 
+    // Preferences window: created lazily on first PREFS; the Window is leaked
+    // (one per session, reused forever via show/hide) so the WebView's borrow
+    // of it is trivially valid — closing/hiding never drops either.
+    // Preferences window is built up-front (hidden) — same pattern as the
+    // panel: windows built before run() get correct screen metrics; windows
+    // built inside the loop mis-place/mis-size on this macOS/tao combo.
+
+    if std::env::var("RALFRED_PREFS_AT_START").is_ok() {
+        if let Some(w) = &prefs_win {
+            w.set_visible(true);
+            w.set_focus();
+        }
+    }
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if selftest {
             ControlFlow::Poll
@@ -367,6 +540,25 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     let _ = webview.evaluate_script(&format!("rfLargeType('{}',{});", esc, sz));
                 }
             }
+            Event::UserEvent(UserEvent(k)) if k == VIB => {
+                let on = crate::config::Config::load().translucent;
+                set_panel_vibrancy(&window, on);
+                webview.reload();
+                if let Some(w) = &prefs_wv {
+                    w.reload();
+                }
+            }
+            Event::UserEvent(UserEvent(k)) if k == PREFS => {
+                if let Some(pw) = &prefs_win {
+                    pw.set_visible(true);
+                    pw.set_focus();
+                }
+            }
+            Event::UserEvent(UserEvent(k)) if k == PREFCLOSE => {
+                if let Some(w) = &prefs_win {
+                    w.set_visible(false);
+                }
+            }
             Event::UserEvent(UserEvent(_)) => {
                 let _ = webview.evaluate_script("rfLargeTypeOff && rfLargeTypeOff();");
                 window.set_fullscreen(None);
@@ -384,8 +576,16 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
+                window_id,
                 ..
-            } => *control_flow = ControlFlow::Exit,
+            } => {
+                if window_id == window.id() {
+                    *control_flow = ControlFlow::Exit;
+                } else if let Some(w) = &prefs_win {
+                    // close button on prefs = hide (reopen via Cmd+,), like Alfred ⌘W
+                    w.set_visible(false);
+                }
+            }
             _ => {}
         }
         if selftest {

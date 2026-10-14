@@ -46,6 +46,13 @@ pub struct Config {
     pub theme: String,
     /// Global hotkey to summon the panel (Alfred's equivalent is a user choice).
     pub hotkey: String,
+    /// macOS vibrancy (NSVisualEffectView) behind the panel — the frosted-glass
+    /// look Alfred ships as "translucency". Default on, like Alfred.
+    #[serde(default = "default_true")]
+    pub translucent: bool,
+    /// Per-feature-domain enable flags (Features pane). Absent key = enabled.
+    #[serde(default)]
+    pub features_enabled: std::collections::HashMap<String, bool>,
 }
 
 impl Default for Config {
@@ -74,6 +81,8 @@ impl Default for Config {
             default_browser: String::new(),
             theme: "alfred-dark".into(),
             hotkey: "ALT+CTRL+SPACE".into(),
+            translucent: true,
+            features_enabled: std::collections::HashMap::new(),
         }
     }
 }
@@ -114,4 +123,8 @@ pub fn expand_home(p: &str) -> PathBuf {
         PathBuf::from(p)
     };
     p
+}
+
+pub fn default_true() -> bool {
+    true
 }

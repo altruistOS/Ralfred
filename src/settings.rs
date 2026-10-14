@@ -18,6 +18,8 @@ pub fn schema() -> Value {
             {"id": "appearance", "title": "Appearance", "fields": [
                 {"key": "theme", "type": "select", "label": "Theme",
                  "options": ["alfred-dark", "alfred-light", "midnight"]},
+                {"key": "translucent", "type": "bool", "label": "Translucency (frosted glass)",
+                 "hint": "macOS vibrancy blur behind the panel"},
             ]},
             {"id": "features", "title": "Features", "fields": [
                 {"key": "auto_expand_snippets", "type": "bool", "label": "Snippet auto expansion"},
@@ -43,6 +45,7 @@ pub fn get() -> Value {
         "hotkey": cfg.hotkey,
         "launch_at_login": install_loaded,
         "theme": cfg.theme,
+        "translucent": cfg.translucent,
         "auto_expand_snippets": cfg.auto_expand_snippets,
         "max_results": cfg.max_results,
         "clipboard_max_items": cfg.clipboard_max_items,
@@ -65,6 +68,9 @@ pub fn patch(body: &Value) -> Result<(), String> {
             return Err("unknown theme".into());
         }
         cfg.theme = t.to_string();
+    }
+    if let Some(v) = body.get("translucent").and_then(|v| v.as_bool()) {
+        cfg.translucent = v;
     }
     if let Some(v) = body.get("auto_expand_snippets").and_then(|v| v.as_bool()) {
         cfg.auto_expand_snippets = v;

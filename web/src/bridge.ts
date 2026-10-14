@@ -114,6 +114,83 @@ export function settingsGet(): Promise<SettingsDoc> {
   return getJSON('/settings') as Promise<SettingsDoc>
 }
 
+// ---- preferences window endpoints ----------------------------------------
+// Driven only by the #prefs view (see components/Preferences.tsx). The shapes
+// mirror the host's JSON exactly: bare arrays, PATCH bodies with {id,...}.
+
+export interface FeatureInfo {
+  id: string
+  name: string
+  desc: string
+  enabled: boolean
+  icon: string
+}
+
+export interface WorkflowInfo {
+  uid: string
+  name: string
+  keyword: string
+  dir: string
+}
+
+export interface ThemeInfo {
+  id: string
+  name: string
+  /** optional live palette (hex, with or without '#') for preview rendering */
+  colors?: Record<string, string>
+}
+
+function asArray(j: unknown): unknown[] {
+  return Array.isArray(j) ? j : []
+}
+
+export function featuresGet(): Promise<FeatureInfo[]> {
+  return getJSON('/api/features').then((j) => asArray(j) as FeatureInfo[])
+}
+
+export function featuresPatch(id: string, enabled: boolean): Promise<unknown> {
+  return fetch('/api/features', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: id, enabled: enabled }),
+  }).then((r) =>
+    r.text().then((t) => {
+      if (!r.ok) {
+        let msg = 'save failed'
+        try {
+          const j = JSON.parse(t)
+          if (j && j.error) msg = String(j.error)
+        } catch (e) {
+          /* keep default message */
+        }
+        throw new Error(msg)
+      }
+      return t ? JSON.parse(t) : undefined
+    }),
+  )
+}
+
+export function workflowsGet(): Promise<WorkflowInfo[]> {
+  return getJSON('/api/workflows').then((j) => asArray(j) as WorkflowInfo[])
+}
+
+export function themesGet(): Promise<ThemeInfo[]> {
+  return getJSON('/api/themes').then((j) => asArray(j) as ThemeInfo[])
+}
+
+/** Ask the host to close the preferences window. Fire-and-forget. */
+export function prefsClose(): void {
+  getQuiet('/prefsclose')
+}
+
+/** Ask the host to open/show the preferences window. Resolves false when the
+ *  host declined (legacy asset mode), so callers fall back to the overlay. */
+export function prefs(): Promise<boolean> {
+  return fetch('/prefs', { cache: 'no-store' })
+    .then((r) => r.ok)
+    .catch(() => false)
+}
+
 export function settingsPatch(values: Record<string, SettingValue>): Promise<unknown> {
   // merge so edits to *different* keys racing an in-flight patch are not lost
   patchPending = { ...(patchPending || {}), ...values }

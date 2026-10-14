@@ -28,7 +28,7 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     }
 
     // 1. calculator
-    if crate::calc::is_calc(q) {
+    if crate::calc::is_calc(q) && crate::features::enabled("calculator") {
         if let Some(r) = calculate(q) {
             return vec![Candidate {
                 title: r,
@@ -44,7 +44,8 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     let mut results: Vec<Candidate> = Vec::new();
 
     // 2. snippet keyword expansion (keyword + space + arg)
-    if let Some((kw, rest)) = q.split_once(' ') {
+    if crate::features::enabled("snippets") {
+      if let Some((kw, rest)) = q.split_once(' ') {
         let snips = Store::snippets();
         for s in snips.find_snippets(kw) {
             if s.keyword == kw {
@@ -60,10 +61,12 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
                 });
             }
         }
+      }
     }
 
     // 3. workflow keyword match (full graph execution)
     let wfs = load_workflows(&crate::config::workflows_dir());
+    let wfs = if crate::features::enabled("workflows") { wfs } else { Vec::new() };
     let (maybe_kw, _rest) = match q.split_once(' ') {
         Some((a, b)) => (a.to_string(), b),
         None => (q.to_string(), ""),
@@ -108,23 +111,23 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
 
     // 4a. contacts (evidence: AlfredContactsQuerier + AlfredFeatureContacts).
     // `c <name>` / `contacts <name>`; fixture-backed in tests via RALFRED_CONTACTS_JSON.
-    results.extend(crate::contacts::candidates(q));
+    if crate::features::enabled("contacts") { results.extend(crate::contacts::candidates(q)); }
 
     // 4a1. 1password (evidence: Alfred1PasswordManager + onepassword:// URL schemes)
-    results.extend(crate::onepassword::candidates(q));
+    if crate::features::enabled("onepassword") { results.extend(crate::onepassword::candidates(q)); }
 
     // 4a14. large type (evidence: AlfredFeatureLargeType, AlfredLargeTypeView)
-    results.extend(crate::largetype::candidates(q));
+    if crate::features::enabled("largetype") { results.extend(crate::largetype::candidates(q)); }
 
     // 4a15. web bookmarks (evidence: AlfredFeatureWebBookmarks, Safari/Chrome adapters)
-    results.extend(crate::webbookmarks::candidates(q));
+    if crate::features::enabled("bookmarks") { results.extend(crate::webbookmarks::candidates(q)); }
 
     // 4a2. itunes/music (evidence: AlfredFeatureiTunes, alfred.itunes.play/.random)
-    results.extend(crate::itunes::candidates(q));
+    if crate::features::enabled("music") { results.extend(crate::itunes::candidates(q)); }
 
     // 4b. dictionary lookup (macOS dict:// URL scheme; evidence: AlfredFeatureDictionary
     // + dict://{query} string in binary). `dict <word>` mirrors Alfred.
-    if q == "dict" || q.starts_with("dict ") {
+    if crate::features::enabled("dictionary") && (q == "dict" || q.starts_with("dict ")) {
         let term = q[4..].trim();
         if !term.is_empty() {
             let url = format!("dict://{}", url_encode(term));
@@ -140,21 +143,23 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     }
 
     // 5. default results (apps / pref panes)
-    let mut dr = default_results(q, cfg, store, cfg.max_results);
-    for r in &mut dr {
-        r.score += 1.0; // slightly below keyword hits
-    }
-    results.append(&mut dr);
+    if crate::features::enabled("filesearch") {
+        let mut dr = default_results(q, cfg, store, cfg.max_results);
+        for r in &mut dr {
+            r.score += 1.0; // slightly below keyword hits
+        }
+        results.append(&mut dr);
 
-    // 6. documents via mdfind (filename/content) — Alfred's file-search backend
-    if !q.contains('/') {
-        let docs = docs_search(q, 8);
-        results.extend(docs);
+        // 6. documents via mdfind (filename/content) — Alfred's file-search backend
+        if !q.contains('/') {
+            let docs = docs_search(q, 8);
+            results.extend(docs);
+        }
     }
 
     // 7. clipboard search when prefixed with ','
     if let Some(rest) = q.strip_prefix(',') {
-        if !rest.trim().is_empty() {
+        if !rest.trim().is_empty() && crate::features::enabled("clipboard") {
             for (item, _) in Store::clipboard().clipboard_search(rest.trim(), 20) {
                 results.push(Candidate {
                     title: item.clone().lines().next().unwrap_or("").chars().take(70).collect(),
