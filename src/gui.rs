@@ -126,6 +126,49 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
                     }
                     Cow::Owned(br#"{"ok":true}"#.to_vec())
                 }
+                "/navigate" => {
+                    // REA 2.11 arrowsForFolderNavigation: Right opens the
+                    // selected file/folder, Left reveals the enclosing folder.
+                    // Panel stays visible (navigation, not execution).
+                    let mut n = 0usize;
+                    let mut enc = false;
+                    for part in query.split('&') {
+                        if let Some(v) = part.strip_prefix("id=") {
+                            n = v.parse().unwrap_or(0)
+                        } else if part == "enc=1" {
+                            enc = true
+                        }
+                    }
+                    let c = sh.items.lock().unwrap().get(n).cloned();
+                    let target: Option<std::path::PathBuf> = c.and_then(|c| {
+                        let p = c.path?;
+                        if enc {
+                            Some(
+                                std::path::Path::new(&p)
+                                    .parent()
+                                    .map(|x| x.to_path_buf())
+                                    .unwrap_or_else(|| std::path::PathBuf::from(&p)),
+                            )
+                        } else {
+                            match c.kind {
+                                crate::search::Kind::App
+                                | crate::search::Kind::Dir
+                                | crate::search::Kind::File
+                                | crate::search::Kind::PrefPane => {
+                                    Some(std::path::PathBuf::from(&p))
+                                }
+                                _ => None,
+                            }
+                        }
+                    });
+                    match target {
+                        Some(t) => {
+                            let _ = crate::router::exec_action(crate::router::Action::Open(t));
+                            Cow::Owned(br#"{"ok":true}"#.to_vec())
+                        }
+                        None => Cow::Owned(br#"{"ok":false}"#.to_vec()),
+                    }
+                }
                 "/history" => {
                     let n: usize = query
                         .strip_prefix("n=")

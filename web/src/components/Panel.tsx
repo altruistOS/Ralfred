@@ -318,6 +318,16 @@ export function Panel({ state, dispatch }: Props) {
         }
         return
       }
+      if (s.items.length > 0 && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')
+          && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // REA 2.11 arrowsForFolderNavigation: Right opens the selected file/
+        // folder in Finder, Left reveals the enclosing folder; panel stays up.
+        const it = s.items[s.sel]
+        if (it && (it.k === 'folder' || it.k === 'document')) {
+          e.preventDefault()
+          void bridge.navigate(s.sel, e.key === 'ArrowLeft')
+        }
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         dispatch({ type: 'MOVE', delta: 1 })

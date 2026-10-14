@@ -40,6 +40,15 @@ export function ql(id: number): Promise<void> {
   return getQuiet('/ql?id=' + id)
 }
 
+// REA 2.11 arrowsForFolderNavigation: Right = open item, Left = enclosing folder.
+// The panel stays visible (the backend does not emit a hide on this route).
+export function navigate(id: number, enclosing = false): Promise<boolean> {
+  return getQuiet(`/navigate?id=${id}&enc=${enclosing ? 1 : 0}`).then(
+    (r) => r != null && r !== undefined,
+    () => false
+  )
+}
+
 export function hide(): Promise<void> {
   return getQuiet('/hide')
 }
