@@ -193,7 +193,8 @@ export function Panel({ state, dispatch }: Props) {
           setActSel((i) => (i - 1 + n) % n)
           return
         }
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' || e.key === 'ArrowRight') {
+          // Enter / Right Arrow execute the highlighted action (Alfred behavior)
           e.preventDefault()
           const a = (actsRef.current ?? [])[actSelRef.current]
           if (a) void bridge.runAction(s.sel, a.id)
