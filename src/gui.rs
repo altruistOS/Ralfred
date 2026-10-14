@@ -550,6 +550,10 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             }
             Event::UserEvent(UserEvent(k)) if k == PREFS => {
                 if let Some(pw) = &prefs_win {
+                    // Deterministic geometry every time — a wrongly restored
+                    // frame (state restoration / stray resize) would otherwise
+                    // reappear as e.g. 1150x812.
+                    pw.set_inner_size(tao::dpi::LogicalSize::new(1180.0, 700.0));
                     pw.set_visible(true);
                     pw.set_focus();
                 }
