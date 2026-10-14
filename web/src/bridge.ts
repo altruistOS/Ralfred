@@ -26,8 +26,9 @@ function getQuiet(path: string): Promise<void> {
 
 // ---- search -------------------------------------------------------------
 
-export function search(q: string): Promise<SearchResult[]> {
-  return getJSON('/search?q=' + encodeURIComponent(q)) as Promise<SearchResult[]>
+export function search(q: string, filesOnly = false): Promise<SearchResult[]> {
+  const mode = filesOnly ? '&mode=files' : ''
+  return getJSON('/search?q=' + encodeURIComponent(q) + mode) as Promise<SearchResult[]>
 }
 
 // ---- exec / quicklook / hide ---------------------------------------------

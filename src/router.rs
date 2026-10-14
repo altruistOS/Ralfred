@@ -191,33 +191,17 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     results
 }
 
-/// File/document search via mdfind (Spotlight) — Alfred's file-search backend.
-/// Skipped for very short queries: a 1-2 char `*q*` content match forces a
-/// whole-disk scan that can block for seconds (observed on live Spotlight).
+/// File/document search. Primary backend is our own in-memory file index
+/// (self-built like Alfred, scoped to user-designated roots) — microseconds
+/// per keystroke, no Spotlight, no disk per keystroke. Content-mode Spotlight
+/// is only ever a rate-limited fallback (5s budget) when the index misses.
 pub fn docs_search(q: &str, max: usize) -> Vec<Candidate> {
-    let mut out = Vec::new();
-    if q.trim().chars().count() < 4 {
-        return out;
-    }
-    if let Ok(o) = std::process::Command::new("mdfind")
-        .arg(format!("kMDItemDisplayName == '*{q}*'c || kMDItemTextContent == '*{q}*'c"))
-        .output()
-    {
-        if o.status.success() {
-            for line in String::from_utf8_lossy(&o.stdout).lines().take(max) {
-                let p = std::path::Path::new(line);
-                let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| line.to_string());
-                let kind = if p.is_dir() { Kind::Dir } else { Kind::File };
-                out.push(Candidate {
-                    title: name,
-                    subtitle: line.to_string(),
-                    path: Some(line.to_string()),
-                    score: 400.0,
-                    kind,
-                    action: None,
-                });
-            }
-        }
+    // name matching via the scope index — matches Alfred, whose file search
+    // is name-based; Spotlight content queries stay out of the keystroke
+    // path (opt in: RALFRED_CONTENT_SEARCH=1).
+    let out = crate::index::docs_candidates(q, max);
+    if out.is_empty() && std::env::var("RALFRED_CONTENT_SEARCH").is_ok() {
+        return crate::index::mdfind_fallback(q, max);
     }
     out
 }

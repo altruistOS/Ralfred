@@ -56,6 +56,9 @@ export function Panel({ state, dispatch }: Props) {
   const histRef = useRef<string[] | null>(null)
   const histIdx = useRef(-1)
   const histDraft = useRef('')
+  // empty-box Space file mode (Alfred keyword switch; REA 2.11)
+  const filesModeRef = useRef(false)
+  const [filesMode, setFilesMode] = useState(false)
   const resetHist = (): void => {
     histIdx.current = -1
     histDraft.current = ''
@@ -69,10 +72,10 @@ export function Panel({ state, dispatch }: Props) {
       dispatch({ type: 'ITEMS', items: [] })
       return
     }
-    if (q === lastQRef.current) return // same query, possibly already in flight
+    if (q === lastQRef.current && !filesModeRef.current) return // same query, possibly already in flight
     lastQRef.current = q
     const id = (qidRef.current += 1)
-    bridge.search(q).then(
+    bridge.search(q, filesModeRef.current).then(
       (v) => {
         if (id === qidRef.current) dispatch({ type: 'ITEMS', items: Array.isArray(v) ? v : [] })
       },
@@ -154,6 +157,8 @@ export function Panel({ state, dispatch }: Props) {
       searchRef.current(s) // run immediately, not debounced
     }
     w.rfReset = (): void => {
+      filesModeRef.current = false
+      setFilesMode(false)
       dispatch({ type: 'CLEAR' })
       if (inputRef.current) inputRef.current.focus()
     }
@@ -216,7 +221,10 @@ export function Panel({ state, dispatch }: Props) {
         e.preventDefault()
         if (s.largeType != null) dispatch({ type: 'LARGE', text: null })
         else if (s.settingsOpen) dispatch({ type: 'SETTINGS_CLOSE' })
-        else void bridge.hide()
+        else if (filesModeRef.current && s.query === '') {
+          filesModeRef.current = false
+          setFilesMode(false)
+        } else void bridge.hide()
         return
       }
       if (e.metaKey && e.key === ',') {
@@ -286,6 +294,20 @@ export function Panel({ state, dispatch }: Props) {
         return
       }
 
+      if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && s.query === '') {
+        // empty-box Space toggles file-only search (Alfred's keyword switch)
+        e.preventDefault()
+        filesModeRef.current = !filesModeRef.current
+        setFilesMode(filesModeRef.current)
+        if (!filesModeRef.current) searchRef.current('')
+        return
+      }
+      if (e.key === 'Backspace' && !e.metaKey && !e.ctrlKey && s.query === '' && filesModeRef.current) {
+        e.preventDefault()
+        filesModeRef.current = false
+        setFilesMode(false)
+        return
+      }
       if (e.altKey && e.key === 'ArrowRight') {
         // REA 2.11: Option+Right also opens the universal-actions panel
         if (s.items.length > 0 && !actBusyRef.current) {
@@ -347,7 +369,8 @@ export function Panel({ state, dispatch }: Props) {
 
   return (
     <div ref={rootRef} className={'rf-root' + (settingsOpen ? ' rf-settings-open' : '')}>
-      <div className="rf-field">
+      <div className={'rf-field' + (filesMode ? ' rf-filemode' : '')}>
+        {filesMode && <div className="rf-filemode-badge">Files</div>}
         <input
           ref={inputRef}
           id="q"

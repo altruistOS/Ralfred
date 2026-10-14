@@ -53,6 +53,10 @@ pub struct Config {
     /// Per-feature-domain enable flags (Features pane). Absent key = enabled.
     #[serde(default)]
     pub features_enabled: std::collections::HashMap<String, bool>,
+    /// Folders the file index walks (Alfred's "search in these locations").
+    /// Empty = built-in defaults (Documents / Downloads / Desktop).
+    #[serde(default = "default_file_roots")]
+    pub file_roots: Vec<String>,
 }
 
 impl Default for Config {
@@ -82,6 +86,7 @@ impl Default for Config {
             theme: "alfred-dark".into(),
             hotkey: "ALT+CTRL+SPACE".into(),
             translucent: true,
+            file_roots: Vec::new(),
             features_enabled: std::collections::HashMap::new(),
         }
     }
@@ -128,3 +133,4 @@ pub fn expand_home(p: &str) -> PathBuf {
 pub fn default_true() -> bool {
     true
 }
+fn default_file_roots() -> Vec<String> { Vec::new() }

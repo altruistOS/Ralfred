@@ -72,10 +72,26 @@ fn api_body(sh: &Arc<Shared>, proxy: &EventLoopProxy<UserEvent>, req: &wry::http
             }
             let body: Cow<'static, [u8]> = match path.as_str() {
                 "/search" => {
-                    let q = url_decode(query.strip_prefix("q=").unwrap_or(&query));
+                    let mut q = String::new();
+                    let mut files_only = false;
+                    for part in query.split('&') {
+                        if let Some(v) = part.strip_prefix("q=") {
+                            q = url_decode(v);
+                        } else if part == "mode=files" {
+                            files_only = true;
+                        }
+                    }
+                    if q.is_empty() {
+                        q = url_decode(query.strip_prefix("q=").unwrap_or(&query));
+                    }
                     let store = Store::knowledge();
                     let cfg = crate::config::Config::load();
-                    let cands = crate::router::route(&q, &cfg, &store);
+                    let mut cands = crate::router::route(&q, &cfg, &store);
+                    if files_only {
+                        // Space-in-empty-box file mode (Alfred's keyword
+                        // switch): only files/folders survive
+                        cands.retain(|c| matches!(c.kind, crate::search::Kind::File | crate::search::Kind::Dir));
+                    }
                     if std::env::var("RALFRED_PROTO_DEBUG").is_ok() {
                         eprintln!("[search] q={:?} -> {} candidates", q, cands.len());
                     }
@@ -457,6 +473,10 @@ fn set_panel_vibrancy(_win: &tao::window::Window, _on: bool) {}
 pub fn run(hotkey: Option<&str>) -> Result<(), String> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let shared = Arc::new(Shared::default());
+
+    // warm the document index off-thread (self-built scope index like
+    // Alfred's; keeps /search off Spotlight entirely while typing)
+    crate::index::ensure_started();
 
     // kill-switch for the frosted-glass layer (used to isolate crashes)
     let glass = crate::config::Config::load().translucent

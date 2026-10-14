@@ -52,6 +52,22 @@ fn main() {
                 run_tui();
             }
         }
+        // "search" is the documented query verb; strip it like the other
+        // commands (the catch-all treats args[0] as the query itself)
+        Some("search") | Some("find") => {
+            let open_first = args.iter().any(|s| s == "--open");
+            let query = args[1..]
+                .iter()
+                .filter(|a| *a != "--open")
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if query.is_empty() {
+                println!("usage: ralfred search <query>");
+                std::process::exit(1);
+            }
+            run_cli_search(&query, open_first);
+        }
         Some("snippet") => cli_snippet(&args[1..]),
         Some("clipboard") => cli_clipboard(&args[1..]),
         Some("workflows") => cli_workflows(),
@@ -102,25 +118,29 @@ fn main() {
         _ => {
             let open_first = args.iter().any(|s| s == "--open");
             let query = args.iter().filter(|a| *a != "--open").cloned().collect::<Vec<_>>().join(" ");
-            let store = Store::knowledge();
-            let cfg = Config::load();
-            let mut results = router::route(&query, &cfg, &store);
-            if results.is_empty() {
-                results = router::path_candidates(&query);
-            }
-            if results.is_empty() {
-                std::process::exit(2);
-            }
-            for (i, r) in results.iter().enumerate() {
-                let act = r.action.as_deref().unwrap_or("");
-                let kind_str = if act.is_empty() { r.kind.label().to_string() } else { format!("{}|{}", r.kind.label(), act) };
-                println!("{}\t{}\t{}\t{}", i, r.title, r.subtitle, kind_str);
-            }
-            if open_first {
-                let first = results[0].clone();
-                act(&first, &store);
-            }
+            run_cli_search(&query, open_first);
         }
+    }
+}
+
+fn run_cli_search(query: &str, open_first: bool) {
+    let store = Store::knowledge();
+    let cfg = Config::load();
+    let mut results = router::route(query, &cfg, &store);
+    if results.is_empty() {
+        results = router::path_candidates(query);
+    }
+    if results.is_empty() {
+        std::process::exit(2);
+    }
+    for (i, r) in results.iter().enumerate() {
+        let act = r.action.as_deref().unwrap_or("");
+        let kind_str = if act.is_empty() { r.kind.label().to_string() } else { format!("{}|{}", r.kind.label(), act) };
+        println!("{}\t{}\t{}\t{}", i, r.title, r.subtitle, kind_str);
+    }
+    if open_first {
+        let first = results[0].clone();
+        act(&first, &store);
     }
 }
 
