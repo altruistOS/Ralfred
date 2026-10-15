@@ -58,7 +58,11 @@ pub fn load_workflows(dir: &Path) -> Vec<Workflow> {
             }
         })
         .collect();
+    // a `.alfredworkflow` unpacks next to itself into `<name>.wfunpack`; if
+    // that folder also sits in the listing we would show the same workflow
+    // twice (the user's "two Snippet Triggers") — dedupe by path.
     dirs.sort();
+    dirs.dedup();
     for d in dirs {
         if let Ok(wf) = Workflow::load_dir(&d) {
             out.push(wf);

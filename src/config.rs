@@ -53,6 +53,10 @@ pub struct Config {
     /// Per-feature-domain enable flags (Features pane). Absent key = enabled.
     #[serde(default)]
     pub features_enabled: std::collections::HashMap<String, bool>,
+    /// Launch behavior: "panel" summons the search box, "silent" leaves the
+    /// app in the menu bar (Alfred's default is menu-bar-only).
+    #[serde(default = "default_launch_mode")]
+    pub launch_mode: String,
     /// Folders the file index walks (Alfred's "search in these locations").
     /// Empty = built-in defaults (Documents / Downloads / Desktop).
     #[serde(default = "default_file_roots")]
@@ -87,6 +91,7 @@ impl Default for Config {
             hotkey: "ALT+CTRL+SPACE".into(),
             translucent: true,
             file_roots: Vec::new(),
+            launch_mode: "panel".into(),
             features_enabled: std::collections::HashMap::new(),
         }
     }
@@ -134,3 +139,4 @@ pub fn default_true() -> bool {
     true
 }
 fn default_file_roots() -> Vec<String> { Vec::new() }
+fn default_launch_mode() -> String { "panel".into() }

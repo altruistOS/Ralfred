@@ -22,6 +22,6 @@ wry = "0.57"
 core-graphics = "0.25"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSView", "NSResponder", "NSVisualEffectView", "NSWindow", "NSColor", "NSGraphics", "NSApplication", "NSAppearance"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSView", "NSResponder", "NSVisualEffectView", "NSWindow", "NSColor", "NSGraphics", "NSApplication", "NSAppearance", "NSStatusItem", "NSStatusBar", "NSStatusBarButton", "NSMenu", "NSMenuItem", "NSImage", "NSButton", "NSControl", "NSBitmapImageRep", "NSEvent"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSGeometry", "NSObjCRuntime", "NSString", "NSObject"] }
 core-foundation = "0.10.1"

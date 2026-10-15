@@ -19,7 +19,7 @@ use wry::WebViewBuilder;
 use serde_json::Value;
 
 #[derive(Clone)]
-pub struct UserEvent(u32); // SHOW=1 HIDE=2 LT=3
+pub struct UserEvent(pub u32); // SHOW=1 HIDE=2 LT=3
 
 pub const SHOW: u32 = 1;
 pub const HIDE: u32 = 2;
@@ -566,13 +566,24 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
     if let Some(combo) = hotkey {
         let hk = crate::hotkey::parse_combo(combo)?;
         let mgr = global_hotkey::GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
-        if let Err(e) = mgr.register(hk) {
-            eprintln!("ralfred: hotkey {combo} unavailable ({e}) — panel opens on launch; change it in Settings (Cmd+,)");
+        match mgr.register(hk) {
+            Ok(()) => eprintln!("[hk] registered {combo} id={}", hk.id),
+            Err(e) => eprintln!("ralfred: hotkey {combo} unavailable ({e}) — panel opens on launch; change it in Settings (Cmd+,)"),
+        }
+        // Carbon delivery is unreliable for plain-option combos on recent
+        // macOS, and registration can silently vanish after re-register —
+        // keep a listen-only session tap as a second, focus-independent path
+        {
+            let p2 = event_loop.create_proxy();
+            let _ = crate::hotkey::start_tap_watcher(move || {
+                let _ = p2.send_event(UserEvent(SHOW));
+            });
         }
         let ev = global_hotkey::GlobalHotKeyEvent::receiver();
         let proxy: EventLoopProxy<UserEvent> = event_loop.create_proxy();
         // watch for user-changed hotkey (settings patch) and re-register live
         let mut cur = combo.to_string();
+        let mut cur_hk = hk;
         let cur_id = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(hk.id));
         let id_r = cur_id.clone();
         let proxy_r = proxy.clone();
@@ -583,7 +594,9 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     Ok(e) if e.id() == id_r.load(std::sync::atomic::Ordering::Relaxed) => {
                         let _ = proxy_r.send_event(UserEvent(SHOW));
                     }
-                    Ok(_) => {}
+                    Ok(e) => {
+                        eprintln!("[hk] event id={} wanted={}", e.id(), id_r.load(std::sync::atomic::Ordering::Relaxed));
+                    }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
                     Err(_) => break,
                 }
@@ -594,7 +607,11 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 let want = crate::config::Config::load().hotkey;
                 if want != cur {
                     if let Ok(nhk) = crate::hotkey::parse_combo(&want) {
-                        if mgr.unregister(hk).is_ok() && mgr.register(nhk).is_ok() {
+                        // unregister what is CURRENTLY registered — using the
+                        // startup key here left the second change un-registered
+                        // (hotkey silently died after two edits)
+                        if mgr.unregister(cur_hk).is_ok() && mgr.register(nhk).is_ok() {
+                            cur_hk = nhk;
                             cur = want;
                             id_r.store(nhk.id, std::sync::atomic::Ordering::Relaxed);
                         }
@@ -605,11 +622,21 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         let _ = proxy;
     }
 
-    // Alfred behavior: launching the app (or the first run) shows the panel.
-    let mut shown = true;
+    // menu-bar item (Alfred lives in the menu bar, not the Dock) + Edit
+    // menu so text fields in the panel and Preferences get ⌘C/⌘V/⌘A
+    if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+        crate::tray::install(event_loop.create_proxy(), mtm);
+    }
+
+    // Launch behavior: "silent" = menu bar only, "panel" = summon right away
+    let silent = std::env::var("RALFRED_SELFTEST").is_err()
+        && crate::config::Config::load().launch_mode == "silent";
+    let mut shown = !silent;
     let mut last_h: u32 = 71;
-    window.set_visible(true);
-    window.set_focus();
+    if !silent {
+        window.set_visible(true);
+        window.set_focus();
+    }
 
     // large-type handoff for the LT event consumer in the loop
     let shared_lt = shared.clone();
@@ -644,10 +671,24 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         };
         match event {
             Event::UserEvent(UserEvent(k)) if k == SHOW => {
-                window.set_visible(true);
-                window.set_focus();
-                shown = true;
-                let _ = webview.evaluate_script("rfReset && rfReset();");
+                // accessory-app summons need an explicit activation push —
+                // a bare set_focus loses to another app's key window
+                if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+                    let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+                    let _: i8 = unsafe { objc2::msg_send![&app, activateIgnoringOtherApps: true] };
+                }
+                if shown {
+                    // Alfred semantics: the hotkey dismisses while visible
+                    // (the panel already self-hides on blur, so visible here
+                    //  means it has focus and the user wants it out of the way)
+                    window.set_visible(false);
+                    shown = false;
+                } else {
+                    window.set_visible(true);
+                    window.set_focus();
+                    shown = true;
+                    let _ = webview.evaluate_script("rfReset && rfReset();");
+                }
             }
             Event::UserEvent(UserEvent(k)) if k == RESIZE => {
                 let h = shared.resize_to.load(std::sync::atomic::Ordering::SeqCst).clamp(71, 972);

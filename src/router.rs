@@ -96,8 +96,15 @@ pub fn route(query: &str, cfg: &Config, store: &Store) -> Vec<Candidate> {
     // 4. web search keyword
     for (k, tmpl) in &cfg.web_search {
         if q == *k || q.starts_with(&format!("{k} ")) {
-            let query = if q == *k { "" } else { &q[k.len() + 1..] };
-            let url = tmpl.replace("{query}", &url_encode(query));
+            let query = if q == *k { "" } else { q[k.len() + 1..].trim() };
+            let url = tmpl
+                .replace("{query}", &url_encode(query))
+                .replace("{q}", &url_encode(query));
+            let url = if url.contains("://") || url.starts_with("magnet:") {
+                url
+            } else {
+                format!("https://{url}")
+            };
             results.push(Candidate {
                 title: format!("Search {} for '{}'", k, query),
                 subtitle: url.clone(),

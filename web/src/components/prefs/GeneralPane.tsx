@@ -114,6 +114,23 @@ export function GeneralPane({ values, set }: PaneProps) {
         onChange={(v) => set('launch_at_login', v)}
       />
 
+      <div className="pf-frow">
+        <label htmlFor="pf-launchmode">On launch</label>
+        <div className="pf-seg" id="pf-launchmode" role="radiogroup">
+          {(['panel', 'silent'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={'pf-seg-btn' + (toStr(values.launch_mode) === m ? ' on' : '')}
+              aria-pressed={toStr(values.launch_mode) === m}
+              onClick={() => set('launch_mode', m)}
+            >
+              {m === 'panel' ? 'Open panel' : 'Silent (menu bar)'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="pf-version" id="pf-version" tabIndex={-1}>
         Version {toStr(values.version) || '—'}
       </div>

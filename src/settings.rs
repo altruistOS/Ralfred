@@ -12,6 +12,9 @@ pub fn schema() -> Value {
             {"id": "general", "title": "General", "fields": [
                 {"key": "hotkey", "type": "string", "label": "Show/hide hotkey",
                  "hint": "ALT+CTRL+SPACE, CMD+OPT+K, …", "restart": true},
+                {"key": "launch_mode", "type": "string", "label": "On launch",
+                 "hint": "\"panel\" opens the search box; \"silent\" starts in the menu bar", "restart": true,
+                 "options": ["panel", "silent"]},
                 {"key": "launch_at_login", "type": "bool", "label": "Start at login",
                  "hint": "registers the launchd agent", "restart": true},
             ]},
@@ -44,6 +47,7 @@ pub fn get() -> Value {
     json!({
         "hotkey": cfg.hotkey,
         "launch_at_login": install_loaded,
+        "launch_mode": cfg.launch_mode.clone(),
         "theme": cfg.theme,
         "translucent": cfg.translucent,
         "auto_expand_snippets": cfg.auto_expand_snippets,
@@ -62,6 +66,12 @@ pub fn patch(body: &Value) -> Result<(), String> {
     if let Some(h) = body.get("hotkey").and_then(|v| v.as_str()) {
         crate::hotkey::parse_combo(h).map_err(|e| format!("bad hotkey: {e}"))?;
         cfg.hotkey = h.to_string();
+    }
+    if let Some(m) = body.get("launch_mode").and_then(|v| v.as_str()) {
+        if m != "panel" && m != "silent" {
+            return Err("launch_mode must be panel or silent".into());
+        }
+        cfg.launch_mode = m.to_string();
     }
     if let Some(t) = body.get("theme").and_then(|v| v.as_str()) {
         if !["alfred-dark", "alfred-light", "midnight"].contains(&t) {
@@ -97,10 +107,19 @@ pub fn patch(body: &Value) -> Result<(), String> {
         let mut m = std::collections::HashMap::new();
         for (k, u) in map {
             if let (ks, Some(us)) = (k.as_str(), u.as_str()) {
-                if ks.contains(' ') || !us.starts_with("http") {
+                // only the keyword shape is validated — a scheme-less URL is
+                // legal here (the router upgrades it to https://); rejecting
+                // "http-only" URLs silently dropped whole settings PATCHes,
+                // which is why a "BB" row could never stick
+                if ks.contains(' ') {
                     return Err(format!("bad web keyword: {ks}"));
                 }
-                m.insert(ks.to_string(), us.to_string());
+                let url = if us.starts_with("www.") {
+                    format!("https://{us}")
+                } else {
+                    us.to_string()
+                };
+                m.insert(ks.to_string(), url);
             }
         }
         cfg.web_search = m;

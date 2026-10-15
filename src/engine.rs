@@ -80,7 +80,23 @@ pub fn act(r: &Candidate, store: &Store) {
         }
         Kind::Snippet => {
             if let Some(t) = &r.path {
-                let _ = router::exec_action(Action::SnippetText(t.clone()));
+                // Snippet Triggers with a URL template behave like Alfred's
+                // snippet keyword search: {query} already substituted by the
+                // router — open it instead of pasting literal text.
+                let trimmed = t.trim();
+                if trimmed.starts_with("http://")
+                    || trimmed.starts_with("https://")
+                    || trimmed.starts_with("www.")
+                {
+                    let url = if trimmed.starts_with("www.") {
+                        format!("https://{trimmed}")
+                    } else {
+                        trimmed.to_string()
+                    };
+                    let _ = router::exec_action(Action::OpenUrl(url));
+                } else {
+                    let _ = router::exec_action(Action::SnippetText(t.clone()));
+                }
             }
         }
         Kind::Dictionary => {

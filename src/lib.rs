@@ -20,6 +20,7 @@ pub mod migration;
 pub mod universal;
 pub mod db;
 pub mod index;
+pub mod tray;
 pub mod router;
 pub mod search;
 pub mod workflow;

@@ -106,13 +106,37 @@ fn build() {
     BUILT.store(true, Ordering::Relaxed);
 }
 
+static BUILDING: AtomicBool = AtomicBool::new(false);
+
+/// Like `build()` but gives up if the walk blocks (wedged directory /
+/// dead network mount — readdir() has no timeout; the abandoned worker is
+/// a leaked OS thread, acceptable for a daemon whose liveness matters).
+fn build_guarded(budget: std::time::Duration) {
+    if BUILDING.swap(true, Ordering::Relaxed) {
+        return; // another attempt is already walking
+    }
+    let done = Arc::new(AtomicBool::new(false));
+    {
+        let d = done.clone();
+        std::thread::spawn(move || {
+            build();
+            d.store(true, Ordering::Relaxed);
+        });
+    }
+    let t0 = std::time::Instant::now();
+    while !done.load(Ordering::Relaxed) && t0.elapsed() < budget {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    BUILDING.store(false, Ordering::Relaxed);
+}
+
 /// Start the background refresh loop once (cheap if already running).
 pub fn ensure_started() {
     START_ONCE.call_once(|| {
         STARTED.store(true, Ordering::Relaxed);
         std::thread::spawn(|| {
             loop {
-                build();
+                build_guarded(std::time::Duration::from_secs(10));
                 std::thread::sleep(std::time::Duration::from_secs(45));
             }
         });
@@ -153,7 +177,7 @@ pub fn docs_candidates(q: &str, max: usize) -> Vec<Candidate> {
     // first use in this process: build synchronously so CLI queries work;
     // GUI builds in the background via ensure_started() before typing
     if !BUILT.load(Ordering::Relaxed) {
-        build();
+        build_guarded(std::time::Duration::from_millis(1500));
     }
     let arc = idx().read().unwrap().clone();
     let now = std::time::SystemTime::now()
@@ -249,7 +273,7 @@ mod tests {
         // override roots via config (full valid JSON: Config has no serde
         // defaults for its required fields — a partial file would parse-fail
         // and silently fall back to the real ~/Documents)
-        let gdir = home.join("global");
+        let gdir = home.join("Alfred.alfredpreferences/preferences/global");
         std::fs::create_dir_all(&gdir).unwrap();
         std::fs::write(
             gdir.join("ralfred_config.json"),
