@@ -591,7 +591,13 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             let mut last_check = std::time::Instant::now();
             loop {
                 match ev.recv_timeout(std::time::Duration::from_millis(100)) {
-                    Ok(e) if e.id() == id_r.load(std::sync::atomic::Ordering::Relaxed) => {
+                    Ok(e)
+                        if e.id() == id_r.load(std::sync::atomic::Ordering::Relaxed)
+                            // the crate emits Pressed AND Released for the same
+                            // id: forwarding both made a real keypress show the
+                            // panel and instantly toggle it away on key-up
+                            && e.state() == global_hotkey::HotKeyState::Pressed =>
+                    {
                         let _ = proxy_r.send_event(UserEvent(SHOW));
                     }
                     Ok(e) => {
