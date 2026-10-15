@@ -1,6 +1,6 @@
 cask "ralfred" do
   version "0.1.0"
-  sha256 "6e002678da43393ad40450e493fdb65fbeee0062d3ea3dbd91dc7d5ecd871132"
+  sha256 "0a292071d087bb5563396f98e2e61475e0325410842c2b45950d087a25bbacfb"
 
   url "https://github.com/altruistOS/Ralfred/releases/download/v#{version}/Ralfred-#{version}.dmg"
   name "Ralfred"
