@@ -632,6 +632,11 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
     let silent = std::env::var("RALFRED_SELFTEST").is_err()
         && crate::config::Config::load().launch_mode == "silent";
     let mut shown = !silent;
+    // real focus state + a short summon grace: right after set_visible(true)
+    // macOS can deliver a stale Focused(false) while the window re-orders,
+    // which used to hide the panel the instant the hotkey summoned it.
+    let mut focused = false;
+    let mut shown_at = std::time::Instant::now() - std::time::Duration::from_secs(3600);
     let mut last_h: u32 = 71;
     if !silent {
         window.set_visible(true);
@@ -687,6 +692,7 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                     window.set_visible(true);
                     window.set_focus();
                     shown = true;
+                    shown_at = std::time::Instant::now();
                     let _ = webview.evaluate_script("rfReset && rfReset();");
                 }
             }
@@ -753,13 +759,28 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
                 shown = false;
             }
             Event::WindowEvent {
+                event: WindowEvent::Focused(true),
+                window_id: id,
+                ..
+            } if window.id() == id => {
+                focused = true;
+            }
+            Event::WindowEvent {
                 event: WindowEvent::Focused(false),
                 window_id: id,
                 ..
             } if window.id() == id && shown => {
-                Store::knowledge().record_query(&sh_ev.last_q.lock().unwrap().clone());
-                window.set_visible(false);
-                shown = false;
+                let just_summoned = shown_at.elapsed() < std::time::Duration::from_millis(250);
+                if !focused || just_summoned {
+                    // stale/duplicate blur during re-order — the panel was
+                    // never actually key (or is mid-summon): ignore it
+                    focused = false;
+                } else {
+                    Store::knowledge().record_query(&sh_ev.last_q.lock().unwrap().clone());
+                    window.set_visible(false);
+                    shown = false;
+                    focused = false;
+                }
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
