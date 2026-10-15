@@ -10,6 +10,7 @@ themes, or license logic copied; data formats aligned for interop.
 
 ```
 brew tap altruistOS/ralfred https://github.com/altruistOS/Ralfred
+brew trust --cask altruistos/ralfred/ralfred   # newer Homebrew only (skips if unneeded)
 brew install --cask ralfred
 ```
 
