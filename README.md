@@ -4,7 +4,25 @@ Clean-room reimplementation of Alfred 5's core feature set, informed by
 reverse-engineering Alfred 5.8 (see `docs/RE_NOTES.md`). No Alfred code, assets,
 themes, or license logic copied; data formats aligned for interop.
 
-## Status (v0.14) → testing: `cargo test` (21 unit) + `bash tests/e2e.sh` (109 feature checks, isolated RALFRED_HOME, exit 0 = all green)
+## Install
+
+**Homebrew** (pulls the DMG from this repo's GitHub Releases):
+
+```
+brew tap altruistOS/ralfred https://github.com/altruistOS/Ralfred
+brew install --cask ralfred
+```
+
+**Manual**: grab `Ralfred-<version>.dmg` from Releases, drag **Ralfred.app** into
+Applications, launch it. The app lives in the **menu bar (R!)**; press
+**Option+Space** (configurable, ⌘, for Settings) to open the panel.
+General → *On launch* chooses whether startup opens the panel or stays silent
+in the menu bar. First launch after download: right-click → **Open** once
+(ad-hoc signature, Gatekeeper).
+
+**Build from source**: `cd web && npm install && npm run build && cd .. && cargo build --release && bash make_app.sh`.
+
+## Status (v0.14) → testing: `cargo test` (32 unit) + `bash tests/e2e.sh` (111 feature checks, isolated RALFRED_HOME, exit 0 = all green)
 
 | Feature | State |
 |---|---|

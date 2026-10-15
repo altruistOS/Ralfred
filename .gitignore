@@ -6,3 +6,6 @@
 node_modules/
 web/node_modules/
 *.log
+
+# local-only RE evidence dumps
+docs/rea-evidence/raw/
