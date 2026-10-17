@@ -207,8 +207,8 @@ pub fn serve(combo: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// CFRunLoopRun — the OS dispatches hotkey taps only while the main run
-/// loop pumps (global-hotkey installs into CFRunLoopGetMain).
+// CFRunLoopRun — the OS dispatches hotkey taps only while the main run
+// loop pumps (global-hotkey installs into CFRunLoopGetMain).
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     fn CFRunLoopRun();

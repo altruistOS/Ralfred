@@ -17,7 +17,7 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Layout},
     style::{Style, Stylize},
     text::Line,
     widgets::{Block, List, ListState, Paragraph},
@@ -116,11 +116,57 @@ fn main() {
             }
         }
         _ => {
+            if args.iter().any(|s| s == "--help" || s == "-h") {
+                print_usage();
+                return;
+            }
+            if args.iter().any(|s| s == "--version" || s == "-V") {
+                println!("ralfred {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             let open_first = args.iter().any(|s| s == "--open");
+            // An unrecognised long option in the query position must not be
+            // searched for: `ralfred --gui` used to become a web search for
+            // "--gui" instead of reporting the bad flag (SPEC §8.22).
+            if let Some(bad) = args
+                .iter()
+                .find(|a| a.starts_with("--") && !matches!(a.as_str(), "--open"))
+            {
+                eprintln!("ralfred: unknown option '{bad}'");
+                eprintln!("Try 'ralfred --help' for usage.");
+                std::process::exit(64);
+            }
             let query = args.iter().filter(|a| *a != "--open").cloned().collect::<Vec<_>>().join(" ");
             run_cli_search(&query, open_first);
         }
     }
+}
+
+fn print_usage() {
+    println!(
+        "ralfred {version} — an Alfred-style macOS launcher\n\
+         \n\
+         USAGE:\n\
+         \x20 ralfred [<query>] [--open]   one-shot search (opens the top hit with --open)\n\
+         \x20 ralfred                       interactive terminal UI\n\
+         \x20 ralfred search <text>         default-results search\n\
+         \x20 ralfred calc <expr>           unit-aware calculator\n\
+         \x20 ralfred gui [<hotkey>]        native panel with a global hotkey\n\
+         \x20 ralfred snippet <kw> [<text>] list or add snippets\n\
+         \x20 ralfred expand               list auto-expanding snippets\n\
+         \x20 ralfred clipboard [--push]    clipboard history (read stdin with --push)\n\
+         \x20 ralfred actions [<verb>]      Universal Actions\n\
+         \x20 ralfred theme [<verb>]        list / apply themes\n\
+         \x20 ralfred ql | icon <path>      Quick Look preview / icon raster\n\
+         \x20 ralfred hotkey [<verb>]       hotkey helpers\n\
+         \x20 ralfred migrate [--dry-run]   import from Alfred 5 (read-only)\n\
+         \x20 ralfred install [uninstall|status]\n\
+         \x20 ralfred config               show the effective configuration\n\
+         \x20 ralfred --help | --version\n\
+         \n\
+         Data lives in ~/Library/Application Support/ralfred (override with RALFRED_HOME).",
+        version = env!("CARGO_PKG_VERSION")
+    );
 }
 
 fn run_cli_search(query: &str, open_first: bool) {
@@ -265,7 +311,16 @@ fn run_tui() {
     let mut state = ListState::default();
     state.select(Some(0));
 
-    let mut term = setup_terminal().expect("init terminal");
+    let mut term = match setup_terminal() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!(
+                "ralfred: cannot start the interactive UI ({e}).\n\
+                 This needs a terminal on stdout; try `ralfred <query>` or `ralfred --help`."
+            );
+            std::process::exit(1);
+        }
+    };
     let res = run_loop(&mut term, &mut query, &mut results, &mut state, &cfg, &store);
     teardown_terminal();
     if let Err(e) = res {
@@ -406,7 +461,10 @@ fn cli_clipboard(args: &[String]) {
     let store = Store::clipboard();
     if args.iter().any(|a| a == "--push") {
         let mut s = String::new();
-        io::stdin().read_to_string(&mut s).unwrap();
+        if let Err(e) = io::stdin().read_to_string(&mut s) {
+            eprintln!("could not read the clipboard payload from stdin: {e}");
+            std::process::exit(1);
+        }
         store.clipboard_push(s.trim(), "ralfred");
         println!("pushed {} chars", s.trim().len());
         return;

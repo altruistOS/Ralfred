@@ -30,8 +30,10 @@ pub fn schema() -> Value {
                 {"key": "clipboard_max_items", "type": "int", "label": "Clipboard history size", "min": 50, "max": 1000},
             ]},
             {"id": "defaultsearch", "title": "Default Results", "fields": [
-                {"key": "default_scope", "type": "list", "label": "Folders to search",
-                 "hint": "one path per line, ~ allowed"},
+                {"key": "default_scope", "type": "list", "label": "Application search scope",
+                 "hint": "where .app bundles are looked up (Alfred's Default Results scope)"},
+                {"key": "file_roots", "type": "list", "label": "File search folders",
+                 "hint": "one path per line, ~ allowed — searched by ' , open, find, in"},
             ]},
             {"id": "websearch", "title": "Web Search", "fields": [
                 {"key": "web_search", "type": "map", "label": "Keyword → URL template",
@@ -54,6 +56,7 @@ pub fn get() -> Value {
         "max_results": cfg.max_results,
         "clipboard_max_items": cfg.clipboard_max_items,
         "default_scope": cfg.default_scope,
+        "file_roots": cfg.file_roots,
         "web_search": cfg.web_search,
         "version": env!("CARGO_PKG_VERSION"),
     })
@@ -102,6 +105,20 @@ pub fn patch(body: &Value) -> Result<(), String> {
             }
         }
         cfg.default_scope = v;
+    }
+    // The file index reads `file_roots` (src/index.rs `roots()`), not
+    // `default_scope` — a folder added to the application scope must not be
+    // expected to appear in quick search results.
+    if let Some(list) = body.get("file_roots").and_then(|v| v.as_array()) {
+        let mut v = Vec::new();
+        for p in list {
+            if let Some(s) = p.as_str() {
+                if !s.trim().is_empty() {
+                    v.push(s.trim().to_string());
+                }
+            }
+        }
+        cfg.file_roots = v;
     }
     if let Some(map) = body.get("web_search").and_then(|v| v.as_object()) {
         let mut m = std::collections::HashMap::new();

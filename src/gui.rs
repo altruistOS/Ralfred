@@ -427,7 +427,6 @@ fn api_handler(sh: Arc<Shared>, proxy: EventLoopProxy<UserEvent>) -> impl Fn(wry
 /// effect Alfred calls translucency.
 #[cfg(target_os = "macos")]
 fn set_panel_vibrancy(win: &tao::window::Window, on: bool) {
-    use objc2::msg_send;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
         NSView, NSVisualEffectView, NSVisualEffectMaterial, NSVisualEffectBlendingMode,
@@ -514,8 +513,9 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
         .map_err(|e| format!("webview: {e}"))?;
 
     // ---- preferences window (hidden until PREFS) ----
-    let mut prefs_wv: Option<wry::WebView> = None;
-    let mut prefs_win: Option<tao::window::Window> = None;
+    // Assigned once below and only read later, so no `mut`/initial value.
+    let prefs_wv: Option<wry::WebView>;
+    let prefs_win: Option<tao::window::Window>;
     let mut pwb = WindowBuilder::new()
         .with_title("Ralfred Preferences")
         .with_inner_size(tao::dpi::LogicalSize::new(1180.0, 700.0))
@@ -737,9 +737,9 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
             Event::UserEvent(UserEvent(k)) if k == VIB => {
                 let on = crate::config::Config::load().translucent;
                 set_panel_vibrancy(&window, on);
-                webview.reload();
+                let _ = webview.reload();
                 if let Some(w) = &prefs_wv {
-                    w.reload();
+                    let _ = w.reload();
                 }
             }
             Event::UserEvent(UserEvent(k)) if k == PREFS => {
@@ -917,19 +917,47 @@ pub fn run(hotkey: Option<&str>) -> Result<(), String> {
 
 fn url_decode(s: &str) -> String {
     let bytes = s.as_bytes();
-    let mut out = Vec::new();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(0));
-            i += 3;
-        } else if bytes[i] == b'+' {
+        // `%` escapes are ASCII by definition. A truncated, non-hex or
+        // multi-byte sequence is copied through instead of being sliced at a
+        // non-char boundary (which panicked on input such as `%é`).
+        if bytes[i] == b'%' {
+            if let Some(hex) = bytes.get(i + 1..i + 3) {
+                if let Ok(h) = std::str::from_utf8(hex) {
+                    if let Ok(b) = u8::from_str_radix(h, 16) {
+                        out.push(b);
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+        }
+        if bytes[i] == b'+' {
             out.push(b' ');
-            i += 1;
         } else {
             out.push(bytes[i]);
-            i += 1;
         }
+        i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_decode;
+
+    #[test]
+    fn url_decode_handles_escapes_and_multibyte() {
+        assert_eq!(url_decode("a%20b"), "a b");
+        assert_eq!(url_decode("a+b"), "a b");
+        assert_eq!(url_decode("%2Ftmp"), "/tmp");
+        assert_eq!(url_decode("%C3%A9"), "é");
+        // Regression: a '%' followed by a multi-byte character used to panic on
+        // a non-char-boundary slice; malformed escapes now pass through.
+        assert_eq!(url_decode("%é"), "%é");
+        assert_eq!(url_decode("100%"), "100%");
+        assert_eq!(url_decode("%zz"), "%zz");
+    }
 }

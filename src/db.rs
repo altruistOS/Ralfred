@@ -2,7 +2,6 @@
 //! Keeps the same table names/columns so migration/import is trivial.
 
 use rusqlite::{params, Connection};
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub struct Store {
@@ -15,6 +14,12 @@ fn open(name: &str) -> rusqlite::Result<Connection> {
     let conn = Connection::open(dir.join(name))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     Ok(conn)
+}
+
+/// Clipboard history cap, honouring the configured value (SPEC §5.6). The
+/// setting used to be ignored in favour of a hard-coded 500.
+fn clipboard_cap() -> i64 {
+    crate::config::Config::load().clipboard_max_items.max(1) as i64
 }
 
 impl Store {
@@ -34,14 +39,28 @@ impl Store {
 
     /// (keyword, snippet) for rows with autoexpand=1.
     pub fn autoexpand_snippets(&self) -> Vec<(String, String)> {
+        self.autoexpand_snippets_full()
+            .into_iter()
+            .map(|(k, s, _)| (k, s))
+            .collect()
+    }
+
+    /// Like [`Store::autoexpand_snippets`] but also reports whether the row
+    /// opted out of dynamic-placeholder expansion (`ignoredynamicplaceholders`,
+    /// SPEC §5.5). The flag is per-row, so it cannot be inferred downstream.
+    pub fn autoexpand_snippets_full(&self) -> Vec<(String, String, bool)> {
         let c = self.conn.lock().unwrap();
-        let mut st = match c.prepare("SELECT keyword, snippet FROM snippets WHERE autoexpand=1") {
+        let mut st = match c.prepare(
+            "SELECT keyword, snippet, COALESCE(ignoredynamicplaceholders,0) FROM snippets WHERE autoexpand=1",
+        ) {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map(|x| x.filter_map(Result::ok).collect())
-            .unwrap_or_default()
+        st.query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0))
+        })
+        .map(|x| x.filter_map(Result::ok).collect())
+        .unwrap_or_default()
     }
 
     pub fn snippets() -> Self {
@@ -160,7 +179,7 @@ impl Store {
         let c = self.conn.lock().unwrap();
         let hash = simple_hash(item);
         c.execute("INSERT INTO clipboard(item,ts,app,apppath,dataType,dataHash) VALUES(?1,?2,?3,'',0,?4)", params![item, now_ts(), app, hash]).unwrap();
-        c.execute("DELETE FROM clipboard WHERE rowid NOT IN (SELECT rowid FROM clipboard ORDER BY ts DESC LIMIT ?1)", params![500i64]).ok();
+        c.execute("DELETE FROM clipboard WHERE rowid NOT IN (SELECT rowid FROM clipboard ORDER BY ts DESC LIMIT ?1)", params![clipboard_cap()]).ok();
     }
 
     /// Insert immediately, return rowid (0 on failure) — for async attribution.
@@ -169,7 +188,7 @@ impl Store {
         let hash = simple_hash(item);
         match c.execute("INSERT INTO clipboard(item,ts,app,apppath,dataType,dataHash) VALUES(?1,?2,'',NULL,0,?3)", params![item, now_ts(), hash]) {
             Ok(_) => {
-                c.execute("DELETE FROM clipboard WHERE rowid NOT IN (SELECT rowid FROM clipboard ORDER BY ts DESC LIMIT ?1)", params![500i64]).ok();
+                c.execute("DELETE FROM clipboard WHERE rowid NOT IN (SELECT rowid FROM clipboard ORDER BY ts DESC LIMIT ?1)", params![clipboard_cap()]).ok();
                 c.last_insert_rowid()
             }
             Err(_) => 0,
@@ -296,7 +315,7 @@ mod qhistory_tests {
 
     #[test]
     fn query_history_dedupes_and_orders() {
-        let _lock = crate::tests::INSTALL_TEST_LOCK.lock().unwrap();
+        let _lock = crate::tests::env_lock();
         let home = std::env::temp_dir().join(format!("rf-qh-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
         std::env::set_var("RALFRED_HOME", &home);

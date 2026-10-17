@@ -203,7 +203,7 @@ cd /tmp && rm -f wf.z.wfpack* 2>/dev/null
 mkdir -p /tmp/wfzip && python3 - <<'EOF'
 import plistlib, zipfile, os
 info={'bundleid':'zip.test','name':'ZipWF','connections':{},
- 'objects':[{'config':{'keyword':'zk','script':'echo {"items":[{"title":"zipok","arg":"z"}]}','type':1},'type':'alfred.scriptfilter','uid':'S'}]}
+ 'objects':[{'config':{'keyword':'zk','script':'''printf '{"items":[{"title":"zipok","arg":"z"}]}' ''','type':1},'type':'alfred.scriptfilter','uid':'S'}]}
 open('/tmp/wfzip/info.plist','wb').write(plistlib.dumps(info))
 z=zipfile.ZipFile('/tmp/ZipWF.alfredworkflow','w'); z.write('/tmp/wfzip/info.plist','info.plist'); z.close()
 EOF
@@ -222,7 +222,7 @@ plistlib.dump({
  "name": "V", "variables": {"WHO": "ralfred-var-probe"}, "connections": {},
  "objects": [{"type": "alfred.scriptfilter", "uid": "SF", "config":
   {"keyword": "vv", "type": 2,
-   "script": 'echo "{\"items\":[{\"title\":\"t-$ALFRED_WORKFLOW_VARIABLE_WHO\",\"arg\":\"x\"}]}"'}}]
+   "script": 'printf \'{"items":[{"title":"t-%s","arg":"x"}]}\' "$ALFRED_WORKFLOW_VARIABLE_WHO"'}}]
 }, open(wdir + "/v.wfunpack/info.plist", "wb"))
 plistlib.dump({
  "name": "C", "connections": {"SF": [{"destinationuid": "CB", "modifiers": 0}]},
@@ -350,6 +350,55 @@ else
 fi
 
 echo "== 8.6 hotkey =="
+
+echo "== 12. file search keywords, fallbacks, options (SPEC 5.2 / 8.21 / 8.22) =="
+# §5.2 — a file keyword whose back end is unavailable explains itself in one row
+chk "file-tags-reports-unavailable" "tag index"            "$($R 'tags rust')"
+chk "file-inside-reports-off"       "Content search is off" "$($R 'in rust')"
+# §8.21 — a file-search mode must never be answered by a web fallback, and a
+# mistyped multi-token keyword must not become a search either
+chk_absent "file-quick-no-web-fallback" "Search Google"  "$($R "'zzqxjv")"
+chk_absent "fallback-multi-token-none"  "Search Google"  "$($R 'zzqxjv wwqk')"
+# the default fallbacks are Google, Amazon and Wikipedia
+chk "fallback-single-token-google"      "Search Google"  "$($R 'zzqxjv')"
+chk "fallback-single-token-amazon"      "Amazon"         "$($R 'zzqxjv')"
+chk "fallback-single-token-wikipedia"   "Wikipedia"      "$($R 'zzqxjv')"
+# the fallback URL must be substituted, never left as the raw {query} template
+chk_absent "fallback-url-substituted"   "{query}"        "$($R 'zzqxjv')"
+# §8.22 — an unrecognised long option is reported, not searched for
+chk "unknown-option-rejected"           "unknown option" "$($R --gui 2>&1)"
+# §5.4 — subtraction, a signed leading number and sqrt() must reach the
+# calculator through the router, not only through the `calc` verb
+chk "calc-subtraction-via-route"        "-1"            "$($R '1-2' | head -1 | cut -f2)"
+chk "calc-signed-leading-via-route"     "-3"            "$($R '-5+2' | head -1 | cut -f2)"
+chk "calc-sqrt-via-route"               "3"             "$($R 'sqrt(9)' | head -1 | cut -f2)"
+chk "calc-sqrt-big-via-route"           "12"            "$($R 'sqrt(144)' | head -1 | cut -f2)"
+
+echo "== 13. file search scope is live without a restart (SPEC 5.2 / 7) =="
+# A folder added to file_roots must be searchable by the next query in a fresh
+# process, and must NOT be answered by a web fallback if the index finds it.
+SCOPE="$H/scope_extra"
+mkdir -p "$SCOPE"; echo x > "$SCOPE/zzneedlefile.txt"
+python3 - "$H/Alfred.alfredpreferences/preferences/global/ralfred_config.json" "$SCOPE" <<'PY'
+import json, sys
+p, root = sys.argv[1], sys.argv[2]
+d = json.load(open(p))
+d["file_roots"] = [root]
+json.dump(d, open(p, "w"))
+PY
+chk "file-scope-live-search"  "zzneedlefile.txt" "$($R 'zzneedlef' | head -1 | cut -f2)"
+chk_absent "file-scope-not-web" "Search Google"  "$($R 'zzneedlef')"
+# the index root list re-reads the config on every rebuild, so a removed
+# folder drops out again without a restart
+python3 - "$H/Alfred.alfredpreferences/preferences/global/ralfred_config.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["file_roots"] = []
+json.dump(d, open(p, "w"))
+PY
+chk_absent "file-scope-removed" "zzneedlefile.txt" "$($R 'zzneedlef')"
+
 echo "================================"
 echo "  PASS=$PASS  FAIL=$FAIL"
 if [ ${#FAILED_LIST[@]} -gt 0 ]; then

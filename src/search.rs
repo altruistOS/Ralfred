@@ -4,7 +4,6 @@
 
 use crate::config::{expand_home, Config};
 use crate::db::Store;
-use std::path::PathBuf;
 use walkdir::WalkDir;
 
 #[derive(Debug, Clone, Default)]
@@ -109,15 +108,17 @@ pub fn fuzzy_score(query: &str, target: &str) -> f64 {
             }
         }
     }
-    // subsequence match anywhere
-    let mut ti = 0;
-    let mut hits = 0;
+    // subsequence match anywhere. Compare chars, not bytes: indexing the
+    // string by byte would mis-score (and could split) non-ASCII names.
+    let tchars: Vec<char> = t.chars().collect();
+    let mut ti = 0usize;
+    let mut hits = 0usize;
     let mut last_pos = -1i64;
     for qc in q.chars() {
-        while ti < t.len() && t.as_bytes()[ti] as char != qc {
+        while ti < tchars.len() && tchars[ti] != qc {
             ti += 1;
         }
-        if ti < t.len() {
+        if ti < tchars.len() {
             hits += 1;
             if ti as i64 - last_pos > 1 {
                 score += 5.0; // gaps are okay but penalised later
@@ -162,7 +163,35 @@ pub fn default_results(query: &str, cfg: &Config, store: &Store, max: usize) -> 
             });
         }
     }
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
     out.truncate(max);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fuzzy_score_handles_non_ascii() {
+        // Regression: the subsequence scan used to index the target by byte and
+        // compare against chars, which mis-scored and could split a multi-byte
+        // character (SPEC §5.2 name matching).
+        assert!(fuzzy_score("caf", "Café Déjà") > 0.0);
+        assert!(fuzzy_score("é", "Café") > 0.0);
+        assert_eq!(fuzzy_score("zzz", "Café"), 0.0);
+        // A query that is only a byte-prefix of a multi-byte char must not panic.
+        assert_eq!(fuzzy_score("ca", "é"), 0.0);
+        let _ = fuzzy_score("x", "日本語");
+    }
+
+    #[test]
+    fn fuzzy_ranks_exact_prefix_first() {
+        assert!(fuzzy_score("saf", "Safari") > fuzzy_score("saf", "Xcode Safety"));
+    }
+
+    #[test]
+    fn fuzzy_empty_target_scores_zero() {
+        assert_eq!(fuzzy_score("x", ""), 0.0);
+    }
 }

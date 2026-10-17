@@ -132,7 +132,7 @@ pub fn candidates(q: &str) -> Vec<Candidate> {
             });
         }
     }
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
     out.truncate(10);
     out
 }

@@ -8,7 +8,6 @@
 //! pipeline is fully testable with it, backend swap is the same code path.
 
 use crate::search::{Candidate, Kind};
-use std::path::Path;
 
 #[derive(serde::Deserialize)]
 struct Person {
@@ -135,7 +134,7 @@ pub fn contacts_search(q: &str, max: usize) -> Vec<(String, String, String)> {
     }
     let q = q.trim().to_lowercase();
     let rows = match std::env::var("RALFRED_CONTACTS_JSON") {
-        Ok(p) => fixture(),
+        Ok(_p) => fixture(),
         Err(_) => contacts_live(&q, max),
     };
     rows.into_iter()

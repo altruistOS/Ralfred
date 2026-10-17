@@ -268,7 +268,7 @@ mod tests {
         std::fs::create_dir_all(docs.join("node_modules")).unwrap();
         std::fs::write(docs.join("node_modules/junk.js"), b"z").unwrap();
 
-        let _lock = crate::tests::INSTALL_TEST_LOCK.lock().unwrap();
+        let _lock = crate::tests::env_lock();
         std::env::set_var("RALFRED_HOME", &home);
         // override roots via config (full valid JSON: Config has no serde
         // defaults for its required fields — a partial file would parse-fail

@@ -15,7 +15,7 @@ pub fn install(proxy: EventLoopProxy<UserEvent>, mtm: objc2_foundation::MainThre
     use objc2::{define_class, msg_send, ClassType, MainThreadOnly};
     use objc2::rc::Retained;
     use objc2_app_kit::{
-        NSApplication, NSImage, NSMenu, NSMenuItem, NSStatusItem, NSStatusBar,
+        NSApplication, NSMenu, NSMenuItem, NSStatusItem, NSStatusBar,
     };
     use objc2_foundation::{MainThreadMarker, NSObject, NSString};
 
@@ -46,7 +46,7 @@ pub fn install(proxy: EventLoopProxy<UserEvent>, mtm: objc2_foundation::MainThre
             fn quit_ralfred(&self, _sender: Option<&AnyObject>) {
                 if let Some(mtm) = MainThreadMarker::new() {
                     let app = NSApplication::sharedApplication(mtm);
-                    unsafe { app.terminate(None) };
+                    app.terminate(None);
                 }
             }
         }
@@ -67,7 +67,7 @@ pub fn install(proxy: EventLoopProxy<UserEvent>, mtm: objc2_foundation::MainThre
             
         }
         let target: Retained<TrayTarget> =
-            unsafe { Retained::retain(msg_send![<TrayTarget as ClassType>::class(), new]) }.unwrap();
+            Retained::retain(msg_send![<TrayTarget as ClassType>::class(), new]).unwrap();
 
         let menu = NSMenu::new(mtm);
         let mk = |title: &str, sel_name: &'static str, m: &NSMenu| {
@@ -127,7 +127,7 @@ pub fn install(proxy: EventLoopProxy<UserEvent>, mtm: objc2_foundation::MainThre
         // ---- Edit menu: key equivalents for text fields ----
         let edit = NSMenu::new(mtm);
         edit.setTitle(&NSString::from_str("Edit"));
-        let mut add = |title: &str, action: &str, key: &str, m: &NSMenu| {
+        let add = |title: &str, action: &str, key: &str, m: &NSMenu| {
             let s = Sel::register(&std::ffi::CString::new(action).unwrap());
             m.addItemWithTitle_action_keyEquivalent(
                 &NSString::from_str(title),

@@ -10,7 +10,6 @@
 //! Fixture via RALFRED_BM_JSON drives deterministic tests.
 
 use crate::search::{Candidate, Kind};
-use std::path::{Path, PathBuf};
 
 #[derive(serde::Deserialize, Clone)]
 struct Bm {

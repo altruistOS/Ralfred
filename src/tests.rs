@@ -85,9 +85,13 @@ fn expand_keycodes() {
 
 #[test]
 fn expand_watcher_buffer() {
+    // Watcher::new() resolves Config and the snippet store, both of which read
+    // RALFRED_HOME — serialize with the other env-sensitive tests.
+    let _lock = env_lock();
     let mut w = crate::expand::Watcher::new();
     w.simulate = true;
-    w.rows = vec![("omw".into(), "On my way!".into())];
+    // rows carry (keyword, snippet, ignoredynamicplaceholders) — see SPEC §5.5
+    w.rows = vec![("omw".into(), "On my way!".into(), false)];
     // type o m w: kVK_ANSI_O=31, M=46, W=13 (Carbon Events.h)
     w.on_key(31, false);
     w.on_key(46, false);
@@ -105,6 +109,7 @@ fn expand_watcher_buffer() {
 
 #[test]
 fn contacts_fixture_and_parse() {
+    let _lock = env_lock();
     // parse three-list AppleScript output
     let p = crate::contacts::parse_applescript_list(
         "{Ada Lovelace, Ada Smith}, {+15550101, }, {ada@example.com, asmith@example.com}", 8);
@@ -134,6 +139,7 @@ fn contacts_fixture_and_parse() {
 
 #[test]
 fn itunes_verbs_and_fixture() {
+    let _lock = env_lock();
     // pure verb mapping (evidence strings: play/pause/playpause/next...)
     assert_eq!(crate::itunes::verb_command("play"), Some("play"));
     assert_eq!(crate::itunes::verb_command("PLAYPAUSE"), Some("playpause"));
@@ -158,6 +164,7 @@ fn itunes_verbs_and_fixture() {
 
 #[test]
 fn quicklook_url_and_toggle() {
+    let _lock = env_lock();
     // real file -> canonical file://
     let u = crate::quicklook::preview_url(Some("/etc/hosts"), None).unwrap();
     assert!(u.starts_with("file:///"));
@@ -186,7 +193,7 @@ fn quicklook_url_and_toggle() {
 #[test]
 fn icons_and_onepassword() {
     // icon cache lives under data_dir() — serialize with env-pinned tests
-    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let _lock = env_lock();
     // icons: icns discovery (dir bundle -> icns), rasterize + cache hit
     let app = std::path::PathBuf::from("/System/Applications/Utilities/Terminal.app");
     if app.exists() {
@@ -218,10 +225,17 @@ fn icons_and_onepassword() {
 
 pub(crate) static INSTALL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Serialize tests that mutate process-global environment variables or resolve
+/// the app-support directory. Poisoning is deliberately ignored: one panicking
+/// test must not poison the lock and cascade into every later env-sensitive test.
+pub fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    INSTALL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[test]
 fn install_lifecycle_sandboxed() {
     // serialized: install state is process-global (sandbox root / env)
-    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let _lock = env_lock();
     let home = std::env::temp_dir().join(format!("rf_install_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     // pin via API, not env, so it can't race other tests reading RALFRED_HOME
@@ -256,6 +270,7 @@ fn install_lifecycle_sandboxed() {
 
 #[test]
 fn webbookmarks_fixture() {
+    let _lock = env_lock();
     let f = std::env::temp_dir().join("rf_bm_test.json");
     std::fs::write(&f, r#"[{"title":"Rust Book","url":"https://doc.rust-lang.org/book/"},{"title":"arXiv","url":"https://arxiv.org"}]"#).unwrap();
     std::env::set_var("RALFRED_BM_JSON", &f);
@@ -312,7 +327,7 @@ fn hotkey_combo_robust_parsing() {
 
 #[test]
 fn settings_get_patch_roundtrip() {
-    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let _lock = env_lock();
     let home = std::env::temp_dir().join(format!("rf_set_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     crate::install::use_sandbox(&home);
@@ -331,6 +346,21 @@ fn settings_get_patch_roundtrip() {
     assert!(crate::settings::patch(&serde_json::json!({"max_results": 1000})).is_err());
     assert!(crate::settings::patch(&serde_json::json!({"auto_expand_snippets": false})).is_ok());
     assert_eq!(crate::settings::get()["auto_expand_snippets"], false);
+    // `file_roots` feeds the file index (quick search / open / find / in),
+    // while `default_scope` only feeds application lookup (SPEC §5.2 / §7)
+    let extra = home.join("rf_scope_extra");
+    std::fs::create_dir_all(&extra).unwrap();
+    std::fs::write(extra.join("needle.txt"), "x").unwrap();
+    assert!(crate::settings::patch(&serde_json::json!({"file_roots": [extra.to_string_lossy(), ""]})).is_ok());
+    let got = crate::config::Config::load().file_roots;
+    assert_eq!(got.len(), 1, "blank entries must be dropped: {got:?}");
+    assert_eq!(got[0], extra.to_string_lossy());
+    assert_eq!(crate::settings::get()["file_roots"], serde_json::json!([extra.to_string_lossy()]));
+    assert!(
+        crate::index::roots().iter().any(|p| p == &extra),
+        "the file index must pick up the patched root without a restart: {:?}",
+        crate::index::roots()
+    );
     // persistence: Config::load sees the change
     assert_eq!(crate::config::Config::load().hotkey, "CMD+ALT+K");
     std::env::remove_var("RALFRED_HOME");
@@ -340,7 +370,7 @@ fn settings_get_patch_roundtrip() {
 
 #[test]
 fn features_enable_disable_gating() {
-    let _lock = INSTALL_TEST_LOCK.lock().unwrap();
+    let _lock = env_lock();
     let home = std::env::temp_dir().join(format!("rf_feat_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     // NB: no install::use_sandbox here — it pins a process-wide OnceCell and

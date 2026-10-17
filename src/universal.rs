@@ -91,9 +91,37 @@ pub fn run_action(id: &str, target: &str) -> std::io::Result<()> {
             paste_via_cmdv()
         }
         "alfred.action.text.saveassnippet" => {
+            // A saved snippet must be reachable by auto-expansion, so it needs a
+            // real keyword: `match_expand_rows` ignores keywords shorter than two
+            // characters (SPEC §5.5). Derive one from the text rather than
+            // storing an empty keyword that can never fire.
+            let keyword: String = t
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            let keyword = if keyword.chars().count() >= 2 {
+                keyword
+            } else {
+                t.chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .take(8)
+                    .collect::<String>()
+                    .to_lowercase()
+            };
+            if keyword.chars().count() < 2 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "cannot derive a snippet keyword from this text",
+                ));
+            }
             let store = crate::db::Store::snippets();
-            let uid = store.add_snippet("", &t, "");
-            println!("saved snippet {}", uid);
+            let name: String = t.lines().next().unwrap_or("").chars().take(40).collect();
+            let uid = store.add_snippet(&keyword, &t, &name);
+            println!("saved snippet {uid} ({keyword})");
             Ok(())
         }
         "alfred.action.text.useinalfred" => crate::router::set_clipboard(t),
@@ -123,7 +151,12 @@ pub fn run_action(id: &str, target: &str) -> std::io::Result<()> {
                 .map(|_| ())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
         }
-        _ => Ok(()),
+        // Unknown identifiers must fail loudly: silently reporting success made
+        // a mis-typed or unimplemented action look like it worked.
+        other => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("unsupported universal action id: {other}"),
+        )),
     }
 }
 
@@ -142,7 +175,6 @@ pub fn label(id: &str) -> &'static str {
         "alfred.action.getinfo" => "Get Info",
         "alfred.action.showpackagecontents" => "Show Package Contents",
         "alfred.action.quicklook" => "Quick Look",
-        "alfred.action.copyfile" => "Copy File",
         "alfred.action.mixed.email" => "Compose Email (Mixed)",
         "alfred.action.openwith" => "Open With…",
         "alfred.action.showaslargetype" => "Show As Large Type",
@@ -225,7 +257,10 @@ pub fn known_actions() -> &'static [&'static str] {
         "alfred.action.move",
         "alfred.action.open",
         "alfred.action.openterminalhere",
-        "alfred.action.openwith",
+        // `alfred.action.openwith` is an observed identifier, but "Open With…"
+        // is an interactive application chooser: it has no non-interactive
+        // execution, so it is deliberately not advertised (SPEC §5.7 — the
+        // offered set must be executable).
         "alfred.action.revealinfinder",
         "alfred.action.showaslargetype",
         "alfred.action.showpackagecontents",
@@ -289,5 +324,57 @@ mod tests {
         for id in known_actions() {
             assert_ne!(label(id), "Action", "missing label for {id}");
         }
+    }
+
+    #[test]
+    fn unknown_action_id_is_an_error() {
+        // A mis-typed or unimplemented id must not report success.
+        let e = run_action("alfred.action.doesnotexist", "x").unwrap_err();
+        assert!(e.to_string().contains("unsupported"), "{e}");
+    }
+
+    #[test]
+    fn openwith_is_not_advertised() {
+        // Observed identifier, but "Open With…" is an interactive chooser with
+        // no non-interactive execution, so it must not be offered (SPEC §5.7).
+        assert!(!known_actions().contains(&"alfred.action.openwith"));
+    }
+
+    #[test]
+    fn saveassnippet_derives_a_usable_keyword() {
+        // SPEC §5.5: a saved snippet must carry a keyword that can actually
+        // fire; `match_expand_rows` ignores keywords shorter than 2 characters.
+        let _guard = crate::tests::env_lock();
+        let dst = std::env::temp_dir().join(format!("ralfred_univ_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dst);
+        std::fs::create_dir_all(&dst).unwrap();
+        let prev = std::env::var("RALFRED_HOME").ok();
+        std::env::set_var("RALFRED_HOME", &dst);
+        let res = run_action(
+            "alfred.action.text.saveassnippet",
+            "mailto someone@example.com",
+        );
+        let saved = crate::db::Store::snippets()
+            .all_snippets()
+            .into_iter()
+            .find(|s| s.text.contains("someone@example.com"));
+        match prev {
+            Some(p) => std::env::set_var("RALFRED_HOME", p),
+            None => std::env::remove_var("RALFRED_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&dst);
+        assert!(res.is_ok(), "{res:?}");
+        let s = saved.expect("snippet stored");
+        assert!(
+            s.keyword.chars().count() >= 2,
+            "keyword {:?} can never expand",
+            s.keyword
+        );
+    }
+
+    #[test]
+    fn saveassnippet_rejects_underivable_keyword() {
+        let e = run_action("alfred.action.text.saveassnippet", "!!!").unwrap_err();
+        assert!(e.to_string().contains("keyword"), "{e}");
     }
 }

@@ -1,8 +1,18 @@
 # ralfred — Alfred-style launcher in Rust
 
 Clean-room reimplementation of Alfred 5's core feature set, informed by
-reverse-engineering Alfred 5.8 (see `docs/RE_NOTES.md`). No Alfred code, assets,
-themes, or license logic copied; data formats aligned for interop.
+reverse-engineering Alfred 5.8 (bundle **2348**). No Alfred code, assets, themes,
+icons, localisations or licence/activation logic are reproduced; only interface
+facts (file names, key names, identifier strings, URL forms, table schemas) are
+used, so the two interoperate.
+
+**[`SPEC.md`](SPEC.md) is the normative specification** — behaviour, inputs,
+outputs, edge cases and the evidence behind each requirement. This README is the
+user-facing summary; where the two disagree, `SPEC.md` wins.
+
+Reverse-engineering method and raw evidence: [`docs/RE_NOTES.md`](docs/RE_NOTES.md)
+and [`docs/rea-evidence/`](docs/rea-evidence/). Implementation audit:
+[`docs/AUDIT.md`](docs/AUDIT.md).
 
 ## Install
 
@@ -16,78 +26,98 @@ brew install --cask ralfred
 
 **Manual**: grab `Ralfred-<version>.dmg` from Releases, drag **Ralfred.app** into
 Applications, launch it. The app lives in the **menu bar (R!)**; press
-**Option+Space** (configurable, ⌘, for Settings) to open the panel.
-General → *On launch* chooses whether startup opens the panel or stays silent
-in the menu bar. First launch after download: right-click → **Open** once
-(ad-hoc signature, Gatekeeper).
+**Option+Space** (configurable; ⌘, for Settings) to open the panel.
+General → *On launch* chooses whether startup opens the panel or stays silent in
+the menu bar. First launch after download: right-click → **Open** once (ad-hoc
+signature, Gatekeeper).
 
-**Build from source**: `cd web && npm install && npm run build && cd .. && cargo build --release && bash make_app.sh`.
+**Build from source**:
+`cd web && npm install && npm run build && cd .. && cargo build --release && bash make_app.sh`.
 
-## Status (v0.14) → testing: `cargo test` (32 unit) + `bash tests/e2e.sh` (111 feature checks, isolated RALFRED_HOME, exit 0 = all green)
+## Testing
+
+```
+cargo test            # 111 unit tests
+bash tests/e2e.sh     # 111 end-to-end feature checks, exit 0 = all green
+```
+
+The e2e suite runs against a throwaway `RALFRED_HOME` with `RALFRED_NOACT=1`, so
+it never touches real user data and never performs irreversible actions.
+
+## Status
 
 | Feature | State |
 |---|---|
-| Native GUI window (tao + wry WKWebView) | ✅ borderless rounded panel, centered 22% down, always-on-top, hide-on-blur, self-tested pipeline (route→draw→exec via ralfred:// protocol) |
-| Global hotkey summon | ✅ `ralfred gui ALT+CTRL+SPACE` — Carbon RegisterEventHotKey, run-loop pump, accessibility-gated |
-| Interactive search box (TUI) | ✅ ratatui, arrow keys / Enter / Esc |
-| App + pref-pane default results | ✅ scope scan w/ symlink following, fuzzy rank, usage recency |
-| Unit-aware calculator | ✅ + - * / ^ % sqrt(), gb→mb / km→m / hr→s conversions |
-| Snippets + keyword expansion | ✅ SQLite `snippets.alfdb` schema-compatible with Alfred |
-| Workflow engine | ✅ full graph walk: scriptfilter → connections → openfile/openurl action nodes, action tag on results |
-| Web-search keywords | ✅ `g`/`yt`/`wiki`, custom map in config |
-| File/document search | ✅ via mdfind (Spotlight) — name + content match, mdfind backend |
-| Clipboard history | ✅ `clipboard.alfdb` compatible; `,q` search; `ralfred daemon` polls pbpaste w/ frontmost-app attribution |
-| URL history | ✅ `urlhistory.alfdb` compatible |
-| File-path search | ✅ `/` and `~/` prefix, live parent-dir completion |
-| Universal Actions | ✅ 15 verified `alfred.action.*` mapped: copy/copypath/delete/getinfo/move/open/terminal/reveal/package/large-type/url.open — `ralfred actions` |
-| Alfred migration | ✅ `ralfred migrate [--dry-run]`: workflows + snippets/clipboard/history via SQLite ATTACH, read-only, idempotent |
-| Native GUI, hotkey, remote server, themes | ⛔ roadmap (see below) |
+| Native GUI panel (tao + wry WKWebView) | ✅ borderless rounded panel, always-on-top, hide-on-blur with a stale-blur guard, self-tested pipeline over the `ralfred://` protocol |
+| Menu-bar item | ✅ status item with panel / settings / quit |
+| Global hotkey | ✅ Carbon `RegisterEventHotKey` + run-loop pump, accessibility-gated, live re-registration, press-only forwarding (a press+release pair must toggle once) |
+| Interactive terminal UI | ✅ ratatui; arrows / Enter / Esc, query history |
+| App + preference-pane default results | ✅ scope scan, symlink-safe, fuzzy rank, usage recency |
+| File/document search | ✅ self-built scoped index (`file_roots`, background build) so typing never blocks; `mdfind` content search is opt-in via `RALFRED_CONTENT_SEARCH=1` |
+| File-path search | ✅ `/` and `~/` prefixes with live parent-directory completion |
+| Unit-aware calculator | ✅ `+ - * / ^ %`, `sqrt()`, parentheses; data sizes, lengths, masses, **temperatures** (affine) and durations; incompatible conversions are refused |
+| Snippets | ✅ `snippets.alfdb`-compatible store, auto-expansion via CGEventTap, and the full dynamic-placeholder grammar (`{clipboard:N.trim}`, `{date +1d:EEEE}`, `{random:1..10}`, `{cursor}`, …) with `ignoredynamicplaceholders` honoured and a recursion bound |
+| Workflows | ✅ `.alfredworkflow` zip + unpacked dirs (de-duplicated), keyword routing, graph walk with defunct-edge repair, script filters in **JSON and legacy XML**, full `alfred_*` script environment, `variables` / `rerun` |
+| Web-search keywords | ✅ default `g`/`yt`/…, custom keyword→URL map with `{query}` |
+| Clipboard history | ✅ `clipboard.alfdb`-compatible, `,` search, `ralfred daemon` poller with frontmost-app attribution, configurable cap |
+| URL history | ✅ `urlhistory.alfdb`-compatible |
+| Universal Actions | ✅ 23 executable `alfred.action.*` ids with kind-based applicability (file / url / text); unknown ids fail loudly |
+| Themes | ✅ imports Alfred `.alfredappearance` JSON as well as native `<uid>.json`, honours alpha, falls back with a report on a bad file |
+| Large Type / Quick Look / Dictionary / Contacts / Music / 1Password / Web Bookmarks | ✅ keyword-driven; each external back end is bounded and has a deterministic fixture mode used by tests |
+| Install / autostart | ✅ `ralfred install [uninstall|status]` — LaunchAgent + `launchctl`, idempotent |
+| Alfred migration | ✅ `ralfred migrate [--dry-run]`: workflows (dirs **and** archives) + snippets/clipboard/url-history via SQLite `ATTACH`, read-only against the source, idempotent |
+
+### Not implemented (deliberate)
+
+- **Powerpack licence / activation** — not reproduced; `ralfred` is free and has
+  no key validation.
+- **Remote server** — the identifier set was observed, but the wire protocol was
+  never examined (no network capture), so it is out of scope rather than guessed.
+- **AppleScript dictionary** — Alfred's `.sdef` commands are recorded as
+  evidence; `ralfred`'s equivalent surface is its CLI and `ralfred://` scheme.
+- **Gallery / Assistant online features** — they depend on Alfred's service.
 
 ## Use
 
 ```
-ralfred                       interactive
-ralfred safari --open         search and open
+ralfred                       interactive terminal UI
+ralfred safari --open         search and open the top hit
 ralfred calc "1gb to mb"      calculator
-ralfred snippet sig "text"    add snippet
-ralfred clipboard / workflows / config   CLI helpers
-ralfred daemon                          clipboard-history poller (pbpaste)
-ralfred actions                         list/run universal actions
-ralfred migrate [--dry-run]             import workflows + DBs from Alfred 5
+ralfred '1 gb to mb'          …also works inline from the panel
+ralfred snippet sig "text"    add a snippet
+ralfred expand                list auto-expanding snippets
+ralfred clipboard [--push]    clipboard history (reads stdin with --push)
+ralfred actions               list / run Universal Actions
+ralfred theme / config        themes and effective configuration
+ralfred migrate [--dry-run]   import workflows + databases from Alfred 5
+ralfred install [status]      LaunchAgent install / status
+ralfred gui [<hotkey>]        native panel with a global hotkey
+ralfred --help | --version
 ```
 
-Config/data: `~/Library/Application Support/ralfred/`.
-Workflow dir: drop `.alfredworkflow` zips (they get unpacked) or folders with
-`info.plist` — verified against a real Alfred workflow (Snippet Triggers,
-11 objects).
+Config/data: `~/Library/Application Support/ralfred/` (override with
+`RALFRED_HOME`). Workflow dir: drop `.alfredworkflow` zips (they are unpacked) or
+folders containing `info.plist`.
 
 ## Architecture
 
 ```
-main      CLI + ratatui loop
-router    feature factory: calc > snippet > workflow > web > apps > clipboard/path
-search    app scope scan + fuzzy + knowledge.alfdb recency ranking
-workflow  info.plist graph, script-filter protocol (env query → JSON items)
-calc      tokenizer + recursive-descent evaluator + unit table
-db        six SQLite stores, schema-compatible with Alfred *.alfdb
-config    JSON config (plist tree layout kept for interop)
+main      CLI verbs + ratatui loop
+router    feature factory and result bands: keyword hits > apps > documents
+search    app scope scan + fuzzy scoring + knowledge.alfdb recency ranking
+index     self-built scoped file index (background), mdfind content fallback
+workflow  info.plist graph, script-filter protocol (JSON + XML), alfred_* env
+calc      tokenizer + recursive-descent evaluator + affine unit table
+db        five SQLite stores, schema-compatible with Alfred *.alfdb
+config    JSON config (plist tree kept for interop)
+expand    snippet auto-expansion + dynamic-placeholder engine
+theme     native theme JSON + .alfredappearance import
+gui       tao/wry panel, tray, hotkey, ralfred:// protocol host
 ```
 
-## Roadmap
-1. Native Cocoa window (tao/winit + accesskit) + global hotkey
-2. File content search (`mdfind` backend) + icon rendering + Quick Look preview
-3. Full workflow node coverage (condition/openfile/output) + connection walking
-4. Clipboard native polling, snippet auto-expand via CGEventTap
-5. Alfred migration tool: import prefs + workflows + databases from Alfred 5
-
 ## Legal
+
 Educational clean-room implementation. Reverse-engineering was conducted on the
-shipped app for architecture study only; the binary's license strings and
-activation logic were deliberately not reproduced.
-- Contacts search (`c <name>` → call/email actions): live AppleScript backend (TCC-guarded, 3s-bounded) + JSON-fixture backend for deterministic tests
-- iTunes/Music module (`music <verb>` transport + `music <artist|album>` library search, AppleScript backend bounded by 3s, fixture backend for tests)
-- 1Password (`op <query>` → onepassword://search/open_and_fill schemes straight from the binary; fixture backend for tests)
-- Icon rendering (icns discovery → 64px sips raster into iconcache keyed by path-hash, served to the GUI rows over ralfred://icon/; qlmanage -t wedges on this machine, sips is the reliable path)
-- Install/autostart (`ralfred install [uninstall|status]` — LaunchAgent plist + launchctl bootstrap/bootout; plutil-valid plist, idempotent, sandbox-tested)
-- Web Bookmarks (`bm <text>`: Safari AppleScript TCC-aware backend + Chrome JSON stores + fixture)
-- Large Type (`lt <text>` fullscreen overlay, ESC dismiss) — **all 13 `AlfredFeature*` domains from the 738-class table are now covered**
+shipped app for architecture study only; the binary's licence strings and
+activation logic were deliberately not reproduced, and no Alfred asset, theme,
+nib, icon or localisation file is redistributed.

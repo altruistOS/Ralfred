@@ -66,6 +66,6 @@ Commands: `search`, `action` (param `type text`), `browse`, `run trigger` (param
 1. No disassembly/decompiler authority (Ghidra/Hopper/IDA absent) — control-flow-level behavior (search ranking, file-cache algorithm, fuzzy scoring `nameChars/latching` semantics) is **unknown**; doc claims above are names + data structures only.
 2. Runtime panel capture blocked this session (window never surfaced to capture tooling); pixel metrics quoted as `runtime[prev]`.
 3. `AlfredTableView.nib` + ~67 framework config nibs undecoded at the 64-document cap.
-4. Theme JSON (`.alfredappearance`) schema inferred from `search.*` key names only; no theme file shipped in bundle to validate (unknown).
+4. ~~Theme JSON (`.alfredappearance`) schema inferred from `search.*` key names only; no theme file shipped in bundle to validate (unknown).~~ **Corrected in the follow-up pass:** theme files *are* shipped — 9 parseable `.alfredappearance` JSON files plus `Alfred Classic.alfredappearance`, which is JSON with a trailing comma and does not parse. Observed root is `{"alfredtheme": {name, credit?, visualEffectMode, window, search, result, separator, scrollbar}}`; colours are `#RRGGBB`/`#AARRGGBB` (alpha first); `window.width` is 559 (theme "Alfred") and 573/683/700 elsewhere; `search.paddingHorizontal`/`search.roundness` exist only in the Modern themes; negative `window.roundness` (-41) occurs. See SPEC.md §5.12.
 5. Default hotkey literals (e.g. ⌥Space) unverified; stored per-user.
 6. `alfred.alfdb`/`preferences.alfdb` empty here — purpose inferred, unconfirmed.

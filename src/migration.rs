@@ -29,16 +29,33 @@ pub fn migrate(dry_run: bool) -> MigrationReport {
         return rep;
     }
 
-    // 1. Workflows: Alfred keeps them as dirs inside alfredpreferences (v5 layout:
-    // preferences/workflows/<uuid>/info.plist) — discover by info.plist marker.
-    let wf_srcs = find_workflows(&src);
+    // 1. Workflows. Alfred 5 keeps them as directories at
+    // `<alfredpreferences>/preferences/workflows/<uid>/info.plist` (observed
+    // layout string `workflows/%@/info.plist`), and also accepts them as
+    // `.alfredworkflow` archives. Discovery is by content marker, not by path,
+    // so a custom preferences root still works.
+    let wf_dirs = find_workflow_dirs(&src);
+    let wf_zips = find_workflow_zips(&src);
     let dst_root = crate::config::workflows_dir();
     if !dry_run {
         std::fs::create_dir_all(&dst_root).ok();
     }
-    for s in wf_srcs {
-        let name = s.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "wf".into());
-        let dst = dst_root.join(format!("migrated-{name}"));
+    for s in &wf_dirs {
+        let label = s
+            .file_name()
+            .map(|x| x.to_string_lossy().to_string())
+            .unwrap_or_else(|| "wf".into());
+        install_workflow(s, &label, &dst_root, dry_run, &mut rep);
+    }
+    // An archive is unpacked into OUR data dir, never next to the original:
+    // the import must not write anything into the Alfred tree.
+    let scratch = crate::config::data_dir().join("migration-scratch");
+    for z in &wf_zips {
+        let label = z
+            .file_stem()
+            .map(|x| x.to_string_lossy().to_string())
+            .unwrap_or_else(|| "wf".into());
+        let dst = dst_root.join(format!("migrated-{label}"));
         if dst.exists() {
             rep.workflows_skipped += 1;
             continue;
@@ -47,9 +64,17 @@ pub fn migrate(dry_run: bool) -> MigrationReport {
             rep.workflows_copied += 1;
             continue;
         }
-        match copy_dir_all(&s, &dst) {
-            Ok(_) => rep.workflows_copied += 1,
-            Err(e) => rep.errors.push(format!("workflow {name}: {e}")),
+        let unpack = scratch.join(&label);
+        if std::fs::create_dir_all(&scratch).is_err() {
+            rep.errors.push(format!("workflow archive {label}: cannot create scratch dir"));
+            continue;
+        }
+        std::fs::remove_dir_all(&unpack).ok();
+        match crate::workflow::unzip_to(z, &unpack) {
+            Ok(()) => install_workflow(&unpack, &label, &dst_root, false, &mut rep),
+            Err(e) => rep
+                .errors
+                .push(format!("workflow archive {}: {e}", z.display())),
         }
     }
 
@@ -87,34 +112,69 @@ pub fn migrate(dry_run: bool) -> MigrationReport {
     rep
 }
 
-fn find_workflows(root: &Path) -> Vec<PathBuf> {
+/// Copy one discovered workflow directory into the ralfred workflow store.
+/// Idempotent: an already-present destination is counted as skipped.
+fn install_workflow(
+    src_dir: &Path,
+    label: &str,
+    dst_root: &Path,
+    dry_run: bool,
+    rep: &mut MigrationReport,
+) {
+    let dst = dst_root.join(format!("migrated-{label}"));
+    if dst.exists() {
+        rep.workflows_skipped += 1;
+        return;
+    }
+    if dry_run {
+        rep.workflows_copied += 1;
+        return;
+    }
+    match copy_dir_all(src_dir, &dst) {
+        Ok(_) => rep.workflows_copied += 1,
+        Err(e) => rep.errors.push(format!("workflow {label}: {e}")),
+    }
+}
+
+/// Workflow directories under `root`: any directory holding a top-level
+/// `info.plist`. Alfred 5 stores these at
+/// `<alfredpreferences>/preferences/workflows/<uid>/info.plist` (observed
+/// layout string `workflows/%@/info.plist`), so discovery must not filter on
+/// the `preferences/` path segment. A workflow directory is not descended into.
+fn find_workflow_dirs(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(d) = stack.pop() {
-        if let Ok(rd) = std::fs::read_dir(&d) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    if p.join("info.plist").exists() && !p.to_string_lossy().contains("Alfred.alfredpreferences/preferences") {
-                        // workflow dir candidate (info.plist at top level)
-                        let n = p.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
-                        if n.len() >= 8 || n.contains(".alfred") {
-                            out.push(p);
-                            continue;
-                        }
-                    }
-                    if p.extension().map(|x| x == "alfredworkflow").unwrap_or(false) {
-                        // zipped workflow: unpack in place for import list
-                        let unpack = p.with_extension("wfunpack");
-                        if !unpack.exists() && crate::workflow::unzip_to(&p, &unpack).is_ok() {
-                            out.push(unpack);
-                        } else if unpack.exists() {
-                            out.push(unpack);
-                        }
-                    } else {
-                        stack.push(p);
-                    }
-                }
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_dir() {
+                continue;
+            }
+            if p.join("info.plist").exists() {
+                out.push(p);
+            } else {
+                stack.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// `.alfredworkflow` archives under `root`. These are files, so they are found
+/// by a file walk rather than by the directory branch above.
+fn find_workflow_zips(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().map(|x| x == "alfredworkflow").unwrap_or(false) {
+                out.push(p);
             }
         }
     }
